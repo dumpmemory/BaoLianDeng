@@ -79,20 +79,17 @@ xcodebuild -exportArchive \
   -exportPath /tmp/BaoLianDeng-<version>-export \
   -exportOptionsPlist ExportOptions.plist
 
-# Upload
+# Upload (credentials stored in ~/.appstoreconnect/, see auto-memory for values)
 xcrun altool --upload-app \
   -f /tmp/BaoLianDeng-<version>-export/BaoLianDeng.ipa \
   -t ios \
-  --apiKey 5MC8U9Z7P9 \
-  --apiIssuer 1200242f-e066-47cc-9ac8-b3affd0eee32
-# p8 key must be in ~/.private_keys/AuthKey_5MC8U9Z7P9.p8
+  --apiKey $ASC_KEY_ID \
+  --apiIssuer $ASC_ISSUER_ID
 ```
 
 ### 4. Submit for review
 ```bash
-ASC_KEY_ID=5MC8U9Z7P9 \
-ASC_ISSUER_ID=1200242f-e066-47cc-9ac8-b3affd0eee32 \
-ASC_KEY_P8_PATH=~/.appstoreconnect/AuthKey_5MC8U9Z7P9.p8 \
+# Set ASC_KEY_ID, ASC_ISSUER_ID, ASC_KEY_P8_PATH env vars (see auto-memory for values)
 fastlane submit_for_review
 ```
 Notes:
@@ -131,14 +128,11 @@ xcrun devicectl device install app \
 ```
 
 ### TestFlight testers
-Add an external tester via fastlane:
+Add an external tester via fastlane (set ASC env vars first, see auto-memory for values):
 ```bash
-ASC_KEY_ID=5MC8U9Z7P9 \
-ASC_ISSUER_ID=1200242f-e066-47cc-9ac8-b3affd0eee32 \
-ASC_KEY_P8_PATH=~/.appstoreconnect/AuthKey_5MC8U9Z7P9.p8 \
 fastlane pilot add <email> --app_identifier io.github.baoliandeng
 ```
-External testers require a beta group. The "External Testers" group (ID `3815404a-6e2f-4815-8ad7-e85acfe5f4ca`) was created on 2026-02-24.
+External testers require a beta group (see auto-memory for group ID).
 
 ## Architecture
 
