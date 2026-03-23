@@ -1,0 +1,27 @@
+[package]
+name = "mihomo-ffi"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["staticlib"]
+
+[dependencies]
+mihomo-tunnel = { path = "../mihomo/crates/mihomo-tunnel" }
+mihomo-config = { path = "../mihomo/crates/mihomo-config" }
+mihomo-dns = { path = "../mihomo/crates/mihomo-dns" }
+mihomo-listener = { path = "../mihomo/crates/mihomo-listener" }
+mihomo-api = { path = "../mihomo/crates/mihomo-api" }
+mihomo-common = { path = "../mihomo/crates/mihomo-common" }
+tokio = { version = "1", features = ["full"] }
+parking_lot = "0.12"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+netstack-smoltcp = "0.2"
+futures = "0.3"
+serde_yaml = "0.9"
+serde_json = "1"
+anyhow = "1"
+libc = "0.2"
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "logging", "std", "tls12"] }
