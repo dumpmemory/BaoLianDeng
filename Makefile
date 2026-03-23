@@ -53,11 +53,16 @@ framework:
 		$(RUST_FFI_DIR)/target/x86_64-apple-ios/release/libmihomo_ffi.a $(BUILD_DIR)/objc-sim-x86.o
 	# Fat library for simulator (arm64 + x86_64)
 	lipo -create $(BUILD_DIR)/sim-arm64.a $(BUILD_DIR)/sim-x86.a -output $(BUILD_DIR)/sim.a
+	# Prepare headers directory (only .h and modulemap, no .m)
+	@rm -rf $(BUILD_DIR)/headers
+	@mkdir -p $(BUILD_DIR)/headers
+	@cp $(FFI_OBJC)/MihomoCore.h $(BUILD_DIR)/headers/
+	@cp $(FFI_OBJC)/module.modulemap $(BUILD_DIR)/headers/
 	# Create xcframework
 	rm -rf $(FRAMEWORK_DIR)/$(FRAMEWORK_NAME).xcframework
 	xcodebuild -create-xcframework \
-		-library $(BUILD_DIR)/device.a -headers $(FFI_OBJC) \
-		-library $(BUILD_DIR)/sim.a -headers $(FFI_OBJC) \
+		-library $(BUILD_DIR)/device.a -headers $(BUILD_DIR)/headers \
+		-library $(BUILD_DIR)/sim.a -headers $(BUILD_DIR)/headers \
 		-output $(FRAMEWORK_DIR)/$(FRAMEWORK_NAME).xcframework
 	@echo "Built $(FRAMEWORK_DIR)/$(FRAMEWORK_NAME).xcframework"
 
@@ -68,9 +73,13 @@ framework-arm64:
 		-target arm64-apple-ios17.0 -fobjc-arc -isysroot $(IOS_SDK) -I$(FFI_OBJC)
 	xcrun libtool -static -o $(BUILD_DIR)/device.a \
 		$(RUST_FFI_DIR)/target/aarch64-apple-ios/release/libmihomo_ffi.a $(BUILD_DIR)/objc-device.o
+	@rm -rf $(BUILD_DIR)/headers
+	@mkdir -p $(BUILD_DIR)/headers
+	@cp $(FFI_OBJC)/MihomoCore.h $(BUILD_DIR)/headers/
+	@cp $(FFI_OBJC)/module.modulemap $(BUILD_DIR)/headers/
 	rm -rf $(FRAMEWORK_DIR)/$(FRAMEWORK_NAME).xcframework
 	xcodebuild -create-xcframework \
-		-library $(BUILD_DIR)/device.a -headers $(FFI_OBJC) \
+		-library $(BUILD_DIR)/device.a -headers $(BUILD_DIR)/headers \
 		-output $(FRAMEWORK_DIR)/$(FRAMEWORK_NAME).xcframework
 	@echo "Built $(FRAMEWORK_DIR)/$(FRAMEWORK_NAME).xcframework (arm64 only)"
 
