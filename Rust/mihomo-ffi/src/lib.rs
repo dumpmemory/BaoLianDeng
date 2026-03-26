@@ -1,16 +1,15 @@
 mod diagnostics;
+mod dns_table;
+mod doh_client;
 mod logging;
-mod tun_fd;
+mod tun2socks;
 
 use mihomo_api::ApiServer;
 use mihomo_listener::MixedListener;
-#[cfg(not(target_os = "ios"))]
-use mihomo_listener::TunListenerConfig;
 use mihomo_tunnel::Tunnel;
 use parking_lot::Mutex;
 use std::ffi::{CStr, CString};
 use std::os::raw::c_char;
-use std::path::PathBuf;
 use std::sync::{Arc, OnceLock};
 
 // ---------------------------------------------------------------------------
@@ -70,7 +69,7 @@ pub unsafe extern "C" fn bridge_free_string(ptr: *mut c_char) {
 
 static RUNTIME: OnceLock<tokio::runtime::Runtime> = OnceLock::new();
 
-fn get_runtime() -> &'static tokio::runtime::Runtime {
+pub(crate) fn get_runtime() -> &'static tokio::runtime::Runtime {
     RUNTIME.get_or_init(|| {
         tokio::runtime::Builder::new_multi_thread()
             .worker_threads(2)
@@ -87,8 +86,19 @@ struct EngineState {
 }
 
 static ENGINE: Mutex<Option<EngineState>> = Mutex::new(None);
-static HOME_DIR: Mutex<Option<PathBuf>> = Mutex::new(None);
-static TUN_FD: Mutex<Option<i32>> = Mutex::new(None);
+pub(crate) static HOME_DIR: Mutex<Option<String>> = Mutex::new(None);
+
+/// Set the config directory. If set, the engine reads `config.yaml` from this
+/// directory on startup instead of using the minimal built-in config.
+///
+/// # Safety
+/// `dir` must be a valid null-terminated UTF-8 string.
+#[no_mangle]
+pub unsafe extern "C" fn bridge_set_home_dir(dir: *const c_char) {
+    let dir_str = cstr_to_str(dir).to_string();
+    logging::bridge_log(&format!("bridge_set_home_dir: {}", dir_str));
+    *HOME_DIR.lock() = if dir_str.is_empty() { None } else { Some(dir_str) };
+}
 
 // ---------------------------------------------------------------------------
 // Version constant
@@ -109,69 +119,15 @@ pub unsafe extern "C" fn bridge_version() -> *const c_char {
 #[no_mangle]
 pub extern "C" fn bridge_force_gc() {}
 
-/// # Safety
-/// `path` must be a valid null-terminated UTF-8 string.
+/// Kept for backward compatibility but no longer used by tun2socks flow.
 #[no_mangle]
-pub unsafe extern "C" fn bridge_set_home_dir(path: *const c_char) {
-    let p = cstr_to_str(path);
-    *HOME_DIR.lock() = Some(PathBuf::from(p));
-}
-
-/// # Safety
-/// `yaml` must be a valid null-terminated UTF-8 string.
-#[no_mangle]
-pub unsafe extern "C" fn bridge_set_config(yaml: *const c_char) -> i32 {
-    let yaml_str = cstr_to_str(yaml);
-    let home = HOME_DIR.lock();
-    let Some(home) = home.as_ref() else {
-        set_error("home directory not set".to_string());
-        return -1;
-    };
-    let config_path = home.join("config.yaml");
-    match std::fs::write(&config_path, yaml_str) {
-        Ok(()) => 0,
-        Err(e) => {
-            set_error(format!("write config: {}", e));
-            -1
-        }
-    }
-}
-
-/// # Safety
-/// `fd` must be a valid TUN file descriptor from iOS NEPacketTunnelProvider.
-#[no_mangle]
-pub extern "C" fn bridge_set_tun_fd(fd: i32) -> i32 {
-    if fd < 0 {
-        set_error(format!("invalid file descriptor: {}", fd));
-        return -1;
-    }
-    *TUN_FD.lock() = Some(fd);
+pub extern "C" fn bridge_set_tun_fd(_fd: i32) -> i32 {
     0
 }
 
 #[no_mangle]
 pub extern "C" fn bridge_is_running() -> bool {
     ENGINE.lock().is_some()
-}
-
-/// # Safety
-/// Returns heap-allocated string. Caller must free via bridge_free_string.
-/// Returns null on error (check bridge_get_last_error).
-#[no_mangle]
-pub unsafe extern "C" fn bridge_read_config() -> *mut c_char {
-    let home = HOME_DIR.lock();
-    let Some(home) = home.as_ref() else {
-        set_error("home directory not set".to_string());
-        return std::ptr::null_mut();
-    };
-    let config_path = home.join("config.yaml");
-    match std::fs::read_to_string(&config_path) {
-        Ok(content) => str_to_cstring_ptr(&content),
-        Err(e) => {
-            set_error(format!("read config: {}", e));
-            std::ptr::null_mut()
-        }
-    }
 }
 
 /// # Safety
@@ -218,12 +174,23 @@ pub extern "C" fn bridge_get_download_traffic() -> i64 {
 // Engine lifecycle
 // ---------------------------------------------------------------------------
 
-/// # Safety
-/// Call bridge_set_home_dir and optionally bridge_set_tun_fd before this.
-#[no_mangle]
-pub extern "C" fn bridge_start_proxy() -> i32 {
-    start_engine(None, None)
-}
+/// Minimal config used at startup. The caller must push the real config via
+/// PUT /configs?force=true on the external controller after the engine starts.
+const MINIMAL_CONFIG: &str = "\
+mixed-port: 7890\n\
+mode: rule\n\
+log-level: info\n\
+allow-lan: false\n\
+dns:\n\
+  enable: true\n\
+  listen: 127.0.0.1:1053\n\
+  nameserver:\n\
+    - 114.114.114.114\n\
+proxies: []\n\
+proxy-groups: []\n\
+rules:\n\
+  - MATCH,DIRECT\n\
+";
 
 /// # Safety
 /// `addr` and `secret` must be valid null-terminated UTF-8 strings.
@@ -241,36 +208,25 @@ fn start_engine(
     external_controller: Option<String>,
     secret: Option<String>,
 ) -> i32 {
+    logging::bridge_log("start_engine: acquiring ENGINE lock");
     let mut engine = ENGINE.lock();
     if engine.is_some() {
         set_error("proxy is already running".to_string());
         return -1;
     }
-
-    let home = HOME_DIR.lock().clone();
-    let Some(home) = home else {
-        set_error("home directory not set".to_string());
-        return -1;
-    };
-
-    let config_path = home.join("config.yaml");
-    let config_path_str = config_path.to_string_lossy().to_string();
-
-    if !config_path.exists() {
-        set_error(format!("config.yaml not found in {}", home.display()));
-        return -1;
-    }
-
-    let tun_fd = TUN_FD.lock().take();
+    logging::bridge_log("start_engine: ENGINE lock acquired");
 
     let rt = get_runtime();
+    logging::bridge_log("start_engine: got runtime, calling block_on");
 
-    match rt.block_on(async { start_engine_async(&config_path_str, tun_fd, external_controller, secret).await }) {
+    match rt.block_on(async { start_engine_async(external_controller, secret).await }) {
         Ok(state) => {
+            logging::bridge_log("start_engine: engine started successfully");
             *engine = Some(state);
             0
         }
         Err(e) => {
+            logging::bridge_log(&format!("start_engine: ERROR: {}", e));
             set_error(format!("start proxy: {}", e));
             -1
         }
@@ -278,15 +234,33 @@ fn start_engine(
 }
 
 async fn start_engine_async(
-    config_path: &str,
-    tun_fd: Option<i32>,
     external_controller: Option<String>,
     secret: Option<String>,
 ) -> Result<EngineState, anyhow::Error> {
-    // Initialize rustls crypto provider
+    logging::bridge_log("start_engine_async: initializing rustls");
     let _ = rustls::crypto::ring::default_provider().install_default();
 
-    let mut config = mihomo_config::load_config(config_path)?;
+    // Load config from home dir if set, otherwise use minimal built-in config
+    let config_str = if let Some(dir) = HOME_DIR.lock().as_ref() {
+        let path = format!("{}/config.yaml", dir);
+        logging::bridge_log(&format!("start_engine_async: loading config from {}", path));
+        match std::fs::read_to_string(&path) {
+            Ok(s) => s,
+            Err(e) => {
+                logging::bridge_log(&format!("start_engine_async: failed to read {}: {}, using minimal", path, e));
+                MINIMAL_CONFIG.to_string()
+            }
+        }
+    } else {
+        logging::bridge_log("start_engine_async: no home dir, using minimal config");
+        MINIMAL_CONFIG.to_string()
+    };
+    let mut config = mihomo_config::load_config_from_str(&config_str)?;
+    logging::bridge_log(&format!(
+        "start_engine_async: config loaded, proxies={}, rules={}",
+        config.proxies.len(),
+        config.rules.len()
+    ));
 
     // Override external controller if specified
     if let Some(addr) = external_controller {
@@ -297,10 +271,12 @@ async fn start_engine_async(
     }
 
     let raw_config = Arc::new(parking_lot::RwLock::new(config.raw.clone()));
+    logging::bridge_log("start_engine_async: creating tunnel");
     let tunnel = Tunnel::new(config.dns.resolver.clone());
     tunnel.set_mode(config.general.mode);
     tunnel.update_rules(config.rules);
     tunnel.update_proxies(config.proxies);
+    logging::bridge_log("start_engine_async: tunnel created, spawning tasks");
 
     let mut handles: Vec<tokio::task::JoinHandle<()>> = Vec::new();
 
@@ -320,7 +296,7 @@ async fn start_engine_async(
             tunnel.clone(),
             api_addr,
             config.api.secret.clone(),
-            config_path.to_string(),
+            String::new(),
             raw_config.clone(),
         );
         handles.push(tokio::spawn(async move {
@@ -330,7 +306,7 @@ async fn start_engine_async(
         }));
     }
 
-    // Start mixed listener
+    // Start mixed listener (SOCKS5/HTTP proxy on port 7890)
     let bind_addr = &config.listeners.bind_address;
     if let Some(port) = config.listeners.mixed_port {
         let addr: std::net::SocketAddr = format!("{}:{}", bind_addr, port).parse()?;
@@ -342,51 +318,12 @@ async fn start_engine_async(
         }));
     }
 
-    // Start TUN listener
-    if let Some(fd) = tun_fd {
-        // iOS path: use fd-based TUN listener
-        let tun_config = config.tun.as_ref();
-        let mtu = tun_config.map(|t| t.mtu).unwrap_or(1500);
-        let dns_hijack = tun_config
-            .map(|t| t.dns_hijack.clone())
-            .unwrap_or_default();
-        let tun_listener = tun_fd::TunFdListener::new(
-            tunnel.clone(),
-            fd,
-            mtu,
-            dns_hijack,
-            config.dns.resolver.clone(),
-        );
-        handles.push(tokio::spawn(async move {
-            if let Err(e) = tun_listener.run().await {
-                tracing::error!("TUN fd listener error: {}", e);
-            }
-        }));
-    } else {
-        #[cfg(not(target_os = "ios"))]
-        if let Some(ref tun_config) = config.tun {
-            if tun_config.enable {
-                // Desktop path: create TUN device
-                let tun_listener_config = TunListenerConfig {
-                    device: tun_config.device.clone(),
-                    mtu: tun_config.mtu,
-                    inet4_address: tun_config.inet4_address.clone(),
-                    dns_hijack: tun_config.dns_hijack.clone(),
-                };
-                let tun = mihomo_listener::TunListener::new(
-                    tunnel.clone(),
-                    tun_listener_config,
-                    config.dns.resolver.clone(),
-                );
-                handles.push(tokio::spawn(async move {
-                    if let Err(e) = tun.run().await {
-                        tracing::error!("TUN listener error: {}", e);
-                    }
-                }));
-            }
-        }
-    }
+    // NOTE: No TUN fd listener — tun2socks handles that separately
 
+    logging::bridge_log(&format!(
+        "start_engine_async: all tasks spawned, handles={}",
+        handles.len()
+    ));
     Ok(EngineState {
         tunnel,
         _handles: handles,
@@ -395,19 +332,55 @@ async fn start_engine_async(
 
 #[no_mangle]
 pub extern "C" fn bridge_stop_proxy() {
+    // Stop tun2socks first
+    tun2socks::stop();
+
     let mut engine = ENGINE.lock();
     if let Some(state) = engine.take() {
-        // Abort all spawned tasks
         for handle in state._handles {
             handle.abort();
         }
     }
-    // Reset TUN fd
-    *TUN_FD.lock() = None;
+}
+
+// ---------------------------------------------------------------------------
+// tun2socks FFI
+// ---------------------------------------------------------------------------
+
+/// Start the lwIP-based tun2socks on the given TUN fd.
+/// Connects reassembled TCP via SOCKS5 to 127.0.0.1:socks_port
+/// and forwards DNS UDP to 127.0.0.1:dns_port.
+///
+/// Call bridge_start_with_external_controller FIRST to start the engine,
+/// then call this to start tun2socks.
+#[no_mangle]
+pub extern "C" fn bridge_start_tun2socks(fd: i32, socks_port: i32, dns_port: i32) -> i32 {
+    logging::bridge_log(&format!(
+        "bridge_start_tun2socks: fd={}, socks={}, dns={}",
+        fd, socks_port, dns_port
+    ));
+
+    if fd < 0 {
+        set_error("invalid file descriptor".to_string());
+        return -1;
+    }
+
+    match tun2socks::start(fd, socks_port as u16, dns_port as u16) {
+        Ok(()) => {
+            logging::bridge_log("bridge_start_tun2socks: started successfully");
+            0
+        }
+        Err(e) => {
+            logging::bridge_log(&format!("bridge_start_tun2socks: ERROR: {}", e));
+            set_error(e);
+            -1
+        }
+    }
 }
 
 /// # Safety
 /// `fd` must be a valid TUN fd. `dns_addr` must be a null-terminated string.
+/// Kept for backward compatibility.
 #[no_mangle]
 pub unsafe extern "C" fn bridge_generate_tun_config(fd: i32, dns_addr: *const c_char) -> *mut c_char {
     let dns = cstr_to_str(dns_addr);
