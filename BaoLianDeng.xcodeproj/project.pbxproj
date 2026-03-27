@@ -16,7 +16,9 @@
 		599CCDA2D5B238AF73EDF62D /* Yams in Frameworks */ = {isa = PBXBuildFile; productRef = 26E740A797906E5C84A95212 /* Yams */; };
 		5F1DE7E22A0EE243182E400A /* AboutView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10006 /* AboutView.swift */; };
 		61BC365FA82815F443D0E346 /* YAMLEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10051 /* YAMLEditor.swift */; };
+		6A3F8B2C7D1E4A059C82E0F1 /* YAMLHighlighter.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10053 /* YAMLHighlighter.swift */; };
 		7A21C63533E42559B2CDF4E6 /* ConfigEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10004 /* ConfigEditorView.swift */; };
+		7B33D74A29F15E68C1A0B5D2 /* ConfigSubViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10052 /* ConfigSubViews.swift */; };
 		7D0DED107502CFFD6FA1D952 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10050 /* SettingsView.swift */; };
 		7E01617C460A452BA5EDB108 /* Yams in Frameworks */ = {isa = PBXBuildFile; productRef = BDB2BE65B199185132229163 /* Yams */; };
 		8263DE84A3B841EF63A2FF89 /* ConfigManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10008 /* ConfigManager.swift */; };
@@ -34,6 +36,7 @@
 		CEE9200E5015BA697A46FD4A /* PacketTunnel.systemextension in Embed System Extensions */ = {isa = PBXBuildFile; fileRef = 259DB0A8D1BC3A31D635256A /* PacketTunnel.systemextension */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		D28CFAAD4562ECF087671BE7 /* Constants.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10007 /* Constants.swift */; };
 		DFFA836A5DFCC6D3BFF95EB6 /* BaoLianDengApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10001 /* BaoLianDengApp.swift */; };
+		E4A1B2C3D5F6078E9A1B3C5D /* ConfigStyleHelpers.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10054 /* ConfigStyleHelpers.swift */; };
 		EBAC80D31A3CCD3F3C083FDA /* AppLogger.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10090 /* AppLogger.swift */; };
 		L10100 /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = B10100 /* Localizable.xcstrings */; };
 		L10101 /* InfoPlist.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = B10101 /* InfoPlist.xcstrings */; };
@@ -76,6 +79,7 @@
 		B10002 /* HomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeView.swift; sourceTree = "<group>"; };
 		B10003 /* TrafficView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrafficView.swift; sourceTree = "<group>"; };
 		B10004 /* ConfigEditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConfigEditorView.swift; sourceTree = "<group>"; };
+		B10052 /* ConfigSubViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConfigSubViews.swift; sourceTree = "<group>"; };
 		B10006 /* AboutView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AboutView.swift; sourceTree = "<group>"; };
 		B10007 /* Constants.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Constants.swift; sourceTree = "<group>"; };
 		B10008 /* ConfigManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConfigManager.swift; sourceTree = "<group>"; };
@@ -89,11 +93,13 @@
 		B10040 /* NetworkExtension.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = NetworkExtension.framework; path = System/Library/Frameworks/NetworkExtension.framework; sourceTree = SDKROOT; };
 		B10050 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		B10051 /* YAMLEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = YAMLEditor.swift; sourceTree = "<group>"; };
+		B10053 /* YAMLHighlighter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = YAMLHighlighter.swift; sourceTree = "<group>"; };
 		B10060 /* TrafficStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrafficStore.swift; sourceTree = "<group>"; };
 		B10070 /* Local.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Local.xcconfig; sourceTree = "<group>"; };
 		B10090 /* AppLogger.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppLogger.swift; sourceTree = "<group>"; };
 		B10100 /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Localizable.xcstrings; sourceTree = "<group>"; };
 		B10101 /* InfoPlist.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = InfoPlist.xcstrings; sourceTree = "<group>"; };
+		B10054 /* ConfigStyleHelpers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConfigStyleHelpers.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -221,10 +227,13 @@
 				B10002 /* HomeView.swift */,
 				B10003 /* TrafficView.swift */,
 				B10004 /* ConfigEditorView.swift */,
+				B10052 /* ConfigSubViews.swift */,
 				B10006 /* AboutView.swift */,
 				B10035 /* TunnelLogView.swift */,
 				B10050 /* SettingsView.swift */,
 				B10051 /* YAMLEditor.swift */,
+				B10053 /* YAMLHighlighter.swift */,
+				B10054 /* ConfigStyleHelpers.swift */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -344,10 +353,13 @@
 				45FA5D0C3EA6EE814F43E891 /* HomeView.swift in Sources */,
 				489D78A7BFE5597B42E4C447 /* TrafficView.swift in Sources */,
 				7A21C63533E42559B2CDF4E6 /* ConfigEditorView.swift in Sources */,
+				7B33D74A29F15E68C1A0B5D2 /* ConfigSubViews.swift in Sources */,
 				5F1DE7E22A0EE243182E400A /* AboutView.swift in Sources */,
 				AC0B915E8C1239813ABF4AB7 /* TunnelLogView.swift in Sources */,
 				7D0DED107502CFFD6FA1D952 /* SettingsView.swift in Sources */,
 				61BC365FA82815F443D0E346 /* YAMLEditor.swift in Sources */,
+				6A3F8B2C7D1E4A059C82E0F1 /* YAMLHighlighter.swift in Sources */,
+				E4A1B2C3D5F6078E9A1B3C5D /* ConfigStyleHelpers.swift in Sources */,
 				A9840B29BC5EC55F29F0BA38 /* TrafficStore.swift in Sources */,
 				C3DAB7AB1483CF34E41BAAFB /* AppLogger.swift in Sources */,
 				D28CFAAD4562ECF087671BE7 /* Constants.swift in Sources */,
