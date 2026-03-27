@@ -51,17 +51,40 @@ fi
 # Extract existing entitlements from each binary, then re-sign with Developer ID
 # Must sign from inside out: appex first, then main app
 
+# Replace development provisioning profiles with Developer ID profiles
+PROFILES_DIR="$HOME/.appstoreconnect/profiles"
+APP_PROFILE="$PROFILES_DIR/BaoLianDeng_DevID.provisionprofile"
+APPEX_PROFILE="$PROFILES_DIR/PacketTunnel_DevID.provisionprofile"
+
+if [ ! -f "$APP_PROFILE" ] || [ ! -f "$APPEX_PROFILE" ]; then
+  echo "ERROR: Developer ID provisioning profiles not found in $PROFILES_DIR"
+  echo "Download them from App Store Connect and place as:"
+  echo "  $APP_PROFILE"
+  echo "  $APPEX_PROFILE"
+  exit 1
+fi
+
+# Rewrite entitlements for Developer ID (systemextension variant)
+rewrite_entitlements() {
+  local binary="$1" output="$2"
+  codesign -d --entitlements - --xml "$binary" 2>/dev/null > "$output"
+  # Swap packet-tunnel-provider → packet-tunnel-provider-systemextension
+  sed -i '' 's/packet-tunnel-provider/packet-tunnel-provider-systemextension/g' "$output"
+}
+
 APPEX_PATH="${APP_PATH}/Contents/PlugIns/PacketTunnel.appex"
 if [ -d "$APPEX_PATH" ]; then
-  echo "Signing PacketTunnel.appex..."
-  codesign -d --entitlements - --xml "$APPEX_PATH" 2>/dev/null > /tmp/appex-ent.plist
+  echo "Embedding PacketTunnel profile and re-signing..."
+  cp "$APPEX_PROFILE" "$APPEX_PATH/Contents/embedded.provisionprofile"
+  rewrite_entitlements "$APPEX_PATH" /tmp/appex-ent.plist
   codesign --force --sign "$IDENTITY" --timestamp --options runtime \
     --entitlements /tmp/appex-ent.plist \
     "$APPEX_PATH"
 fi
 
-echo "Signing ${APP_NAME}.app..."
-codesign -d --entitlements - --xml "$APP_PATH" 2>/dev/null > /tmp/app-ent.plist
+echo "Embedding app profile and re-signing..."
+cp "$APP_PROFILE" "$APP_PATH/Contents/embedded.provisionprofile"
+rewrite_entitlements "$APP_PATH" /tmp/app-ent.plist
 codesign --force --sign "$IDENTITY" --timestamp --options runtime \
   --entitlements /tmp/app-ent.plist \
   "$APP_PATH"
