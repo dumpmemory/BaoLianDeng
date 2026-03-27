@@ -98,7 +98,13 @@ struct HomeView: View {
                     }
                 }
             }
-            .onAppear { loadSubscriptions() }
+            .onAppear {
+                loadSubscriptions()
+                vpnManager.checkExtensionStatus()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+                vpnManager.checkExtensionStatus()
+            }
             .overlay {
                 if showToast {
                     VStack {
@@ -157,6 +163,26 @@ struct HomeView: View {
                     .font(.caption)
                     .foregroundStyle(.red)
             }
+
+            Button {
+                if vpnManager.extensionEnabled {
+                    // Already enabled, no action
+                } else {
+                    if let url = URL(string: "x-apple.systempreferences:com.apple.LoginItems-Settings.extension") {
+                        NSWorkspace.shared.open(url)
+                    }
+                }
+            } label: {
+                HStack {
+                    Image(systemName: vpnManager.extensionEnabled ? "checkmark.shield.fill" : "exclamationmark.shield.fill")
+                    Text(vpnManager.extensionEnabled ? "Network Extension Enabled" : "Enable Network Extension")
+                        .font(.subheadline)
+                }
+                .foregroundStyle(vpnManager.extensionEnabled ? .green : .orange)
+                .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.plain)
+            .disabled(vpnManager.extensionEnabled)
 
             Picker("Routing", selection: $selectedMode) {
                 ForEach(ProxyMode.allCases) { mode in

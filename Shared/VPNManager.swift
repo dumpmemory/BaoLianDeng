@@ -28,9 +28,7 @@ final class VPNManager: NSObject, ObservableObject {
     @Published var status: NEVPNStatus = .disconnected
     @Published var isProcessing = false
     @Published var errorMessage: String?
-    #if canImport(SystemExtensions)
-    @Published var extensionInstalled = false
-    #endif
+    @Published var extensionEnabled = false
     private func dbg(_ msg: String) {
         #if DEBUG
         AppLogger.vpn.debug("\(msg, privacy: .public)")
@@ -70,6 +68,17 @@ final class VPNManager: NSObject, ObservableObject {
 
     var isConnected: Bool {
         status == .connected
+    }
+
+    /// Check if the network extension is enabled by verifying a VPN config can be loaded.
+    func checkExtensionStatus() {
+        NETunnelProviderManager.loadAllFromPreferences { [weak self] managers, _ in
+            DispatchQueue.main.async {
+                let enabled = managers?.first?.isEnabled ?? false
+                self?.extensionEnabled = enabled
+                self?.dbg("checkExtensionStatus: enabled=\(enabled)")
+            }
+        }
     }
 
     // MARK: - Manager Lifecycle
@@ -140,9 +149,7 @@ final class VPNManager: NSObject, ObservableObject {
                 self?.isProcessing = false
             }
             if connection.status == .connected {
-                #if canImport(SystemExtensions)
-                self?.extensionInstalled = true
-                #endif
+                self?.extensionEnabled = true
                 self?.selectSavedProxyNode()
             }
             if connection.status == .disconnected {
@@ -201,14 +208,10 @@ final class VPNManager: NSObject, ObservableObject {
             manager.isEnabled = true
             manager.saveToPreferences { error in
                 if let error = error {
+                    self.dbg("saveToPrefs error: \(error.localizedDescription)")
                     DispatchQueue.main.async {
                         self.isProcessing = false
-                        let nsError = error as NSError
-                        if nsError.domain == NEVPNErrorDomain && nsError.code == NEVPNError.configurationDisabled.rawValue {
-                            self.openNetworkExtensionSettings()
-                        } else {
-                            self.errorMessage = "Failed to save VPN config: \(error.localizedDescription)"
-                        }
+                        self.errorMessage = "Failed to save VPN config: \(error.localizedDescription)"
                     }
                     return
                 }
@@ -233,16 +236,10 @@ final class VPNManager: NSObject, ObservableObject {
                         try (manager.connection as? NETunnelProviderSession)?.startTunnel()
                         self.dbg("saveAndStart: startTunnel called OK")
                     } catch {
-                        self.dbg("saveAndStart: startTunnel threw: \(error)")
+                        self.dbg("startTunnel error: \(error.localizedDescription)")
                         DispatchQueue.main.async {
                             self.isProcessing = false
-                            let nsError = error as NSError
-                            // NEVPNError.configurationDisabled means extension not enabled
-                            if nsError.domain == NEVPNErrorDomain && nsError.code == NEVPNError.configurationDisabled.rawValue {
-                                self.openNetworkExtensionSettings()
-                            } else {
-                                self.errorMessage = "Failed to start tunnel: \(error.localizedDescription)"
-                            }
+                            self.errorMessage = "Failed to start tunnel: \(error.localizedDescription)"
                         }
                     }
                 }
@@ -460,7 +457,7 @@ extension VPNManager: OSSystemExtensionRequestDelegate {
         dbg("didFinish: result=\(result.rawValue)")
         switch result {
         case .completed:
-            extensionInstalled = true
+            extensionEnabled = true
             loadManager()
         case .willCompleteAfterReboot:
             errorMessage = "System extension will activate after reboot"
@@ -474,7 +471,7 @@ extension VPNManager: OSSystemExtensionRequestDelegate {
         dbg("didFail: \(error.localizedDescription) domain=\(nsError.domain) code=\(nsError.code)")
         // requestSuperseded (code 4) means extension is already active
         if nsError.domain == "OSSystemExtensionErrorDomain" && nsError.code == 4 {
-            DispatchQueue.main.async { self.extensionInstalled = true }
+            DispatchQueue.main.async { self.extensionEnabled = true }
         }
         loadManager()
     }
