@@ -2,11 +2,9 @@
 #include <stdbool.h>
 
 // C FFI declarations (from Rust staticlib)
-extern void bridge_set_home_dir(const char *path);
-extern int32_t bridge_set_config(const char *yaml);
+extern void bridge_set_home_dir(const char *dir);
 extern int32_t bridge_set_log_file(const char *path);
 extern int32_t bridge_set_tun_fd(int32_t fd);
-extern int32_t bridge_start_proxy(void);
 extern int32_t bridge_start_with_external_controller(const char *addr, const char *secret);
 extern void bridge_stop_proxy(void);
 extern bool bridge_is_running(void);
@@ -22,6 +20,7 @@ extern char *bridge_test_proxy_http(const char *url);
 extern char *bridge_test_dns_resolver(const char *addr);
 extern char *bridge_test_selected_proxy(const char *api_addr);
 extern char *bridge_generate_tun_config(int32_t fd, const char *dns_addr);
+extern int32_t bridge_start_tun2socks(int32_t fd, int32_t socks_port, int32_t dns_port);
 extern void bridge_free_string(char *ptr);
 extern const char *bridge_get_last_error(void);
 
@@ -32,39 +31,16 @@ static NSError *makeError(void) {
                            userInfo:@{NSLocalizedDescriptionKey: desc}];
 }
 
-void BridgeSetHomeDir(NSString * _Nullable path) {
-    bridge_set_home_dir([path UTF8String]);
+void BridgeSetHomeDir(NSString * _Nullable dir) {
+    bridge_set_home_dir([dir UTF8String]);
 }
 
-BOOL BridgeSetConfig(NSString * _Nullable yamlContent, NSError * _Nullable * _Nullable error) {
-    int32_t rc = bridge_set_config([yamlContent UTF8String]);
-    if (rc != 0) {
-        if (error) *error = makeError();
-        return NO;
-    }
-    return YES;
-}
-
-BOOL BridgeSetLogFile(NSString * _Nullable path, NSError * _Nullable * _Nullable error) {
-    int32_t rc = bridge_set_log_file([path UTF8String]);
-    if (rc != 0) {
-        if (error) *error = makeError();
-        return NO;
-    }
-    return YES;
+void BridgeSetLogFile(NSString * _Nullable path) {
+    bridge_set_log_file([path UTF8String]);
 }
 
 BOOL BridgeSetTUNFd(int32_t fd, NSError * _Nullable * _Nullable error) {
     int32_t rc = bridge_set_tun_fd(fd);
-    if (rc != 0) {
-        if (error) *error = makeError();
-        return NO;
-    }
-    return YES;
-}
-
-BOOL BridgeStartProxy(NSError * _Nullable * _Nullable error) {
-    int32_t rc = bridge_start_proxy();
     if (rc != 0) {
         if (error) *error = makeError();
         return NO;
@@ -87,17 +63,6 @@ void BridgeStopProxy(void) {
 
 BOOL BridgeIsRunning(void) {
     return bridge_is_running() ? YES : NO;
-}
-
-NSString * _Nonnull BridgeReadConfig(NSError * _Nullable * _Nullable error) {
-    char *result = bridge_read_config();
-    if (!result) {
-        if (error) *error = makeError();
-        return @"";
-    }
-    NSString *str = [NSString stringWithUTF8String:result];
-    bridge_free_string(result);
-    return str;
 }
 
 BOOL BridgeValidateConfig(NSString * _Nullable yamlContent, NSError * _Nullable * _Nullable error) {
@@ -163,4 +128,13 @@ NSString * _Nonnull BridgeGenerateTUNConfig(int32_t fd, NSString * _Nullable dns
     NSString *str = [NSString stringWithUTF8String:result];
     bridge_free_string(result);
     return str;
+}
+
+BOOL BridgeStartTun2Socks(int32_t fd, int32_t socksPort, int32_t dnsPort, NSError * _Nullable * _Nullable error) {
+    int32_t rc = bridge_start_tun2socks(fd, socksPort, dnsPort);
+    if (rc != 0) {
+        if (error) *error = makeError();
+        return NO;
+    }
+    return YES;
 }

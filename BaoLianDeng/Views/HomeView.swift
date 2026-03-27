@@ -38,8 +38,7 @@ struct HomeView: View {
                 List {
                     connectSection
                 }
-                .listStyle(.insetGrouped)
-                .scrollDisabled(true)
+                .scrollDisabled(false)
                 .frame(height: vpnManager.errorMessage != nil ? 185 : 155)
 
                 ScrollViewReader { proxy in
@@ -51,7 +50,6 @@ struct HomeView: View {
                             subscriptionSections
                         }
                     }
-                    .listStyle(.insetGrouped)
                     .onAppear { scrollProxy = proxy }
                 }
             }
@@ -62,12 +60,12 @@ struct HomeView: View {
                 }
             }
             .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
+                ToolbarItem(placement: .automatic) {
                     Button(action: { showAddSubscription = true }) {
                         Image(systemName: "plus")
                     }
                 }
-                ToolbarItem(placement: .topBarLeading) {
+                ToolbarItem(placement: .automatic) {
                     Button {
                         Task { await reloadAllSubscriptions() }
                     } label: {
@@ -148,6 +146,7 @@ struct HomeView: View {
                     get: { vpnManager.isConnected },
                     set: { _ in vpnManager.toggle() }
                 ))
+                .toggleStyle(.switch)
                 .labelsHidden()
                 .disabled(vpnManager.isProcessing)
             }
@@ -286,7 +285,7 @@ struct HomeView: View {
 
     private func selectSubscription(_ sub: Subscription) {
         selectedSubscriptionID = sub.id
-        UserDefaults(suiteName: AppConstants.appGroupIdentifier)?
+        AppConstants.sharedDefaults
             .set(sub.id.uuidString, forKey: "selectedSubscriptionID")
         // Auto-select first node if current node isn't from this subscription
         let nodeNames = Set(sub.nodes.map(\.name))
@@ -299,9 +298,8 @@ struct HomeView: View {
         // Apply the subscription YAML to config.yaml so the VPN uses it
         if let raw = sub.rawContent {
             Task.detached {
-                try? ConfigManager.shared.applySubscriptionConfig(raw)
-                await ConfigManager.shared.downloadGeoDataIfNeeded()
-                await Self.reloadMihomoConfig()
+                let merged = (try? ConfigManager.shared.applySubscriptionConfig(raw)) ?? ""
+                await Self.reloadMihomoConfig(with: merged)
             }
         }
     }
@@ -310,8 +308,8 @@ struct HomeView: View {
         Task {
             let result = await Task.detached(priority: .userInitiated) {
                 () -> (subs: [Subscription], selectedNode: String?, selectedID: UUID?)? in
-                let defaults = UserDefaults(suiteName: AppConstants.appGroupIdentifier)
-                guard let data = defaults?.data(forKey: "subscriptions"),
+                let defaults = AppConstants.sharedDefaults
+                guard let data = defaults.data(forKey: "subscriptions"),
                       var subs = try? JSONDecoder().decode([Subscription].self, from: data) else {
                     return nil
                 }
@@ -324,11 +322,11 @@ struct HomeView: View {
                     }
                 }
                 if needsSave, let saveData = try? JSONEncoder().encode(subs) {
-                    defaults?.set(saveData, forKey: "subscriptions")
+                    defaults.set(saveData, forKey: "subscriptions")
                 }
-                let selectedNode = defaults?.string(forKey: "selectedNode")
+                let selectedNode = defaults.string(forKey: "selectedNode")
                 let selectedID: UUID?
-                if let idStr = defaults?.string(forKey: "selectedSubscriptionID"),
+                if let idStr = defaults.string(forKey: "selectedSubscriptionID"),
                    let id = UUID(uuidString: idStr),
                    subs.contains(where: { $0.id == id }) {
                     selectedID = id
@@ -357,26 +355,25 @@ struct HomeView: View {
         let snapshot = subscriptions
         Task.detached(priority: .background) {
             guard let data = try? JSONEncoder().encode(snapshot) else { return }
-            UserDefaults(suiteName: AppConstants.appGroupIdentifier)?
+            AppConstants.sharedDefaults
                 .set(data, forKey: "subscriptions")
         }
     }
 
     private func saveSelectedNode(_ name: String) {
-        UserDefaults(suiteName: AppConstants.appGroupIdentifier)?
+        AppConstants.sharedDefaults
             .set(name, forKey: "selectedNode")
     }
 
     /// Reload Mihomo's running config via the external controller REST API.
-    /// This makes config.yaml changes (e.g. subscription refresh) take effect immediately
-    /// without restarting the VPN tunnel.
-    static func reloadMihomoConfig() async {
+    /// Passes the YAML as an inline payload so Mihomo doesn't need filesystem access
+    /// to the main app's sandboxed container.
+    static func reloadMihomoConfig(with yaml: String) async {
         guard let url = URL(string: "http://\(AppConstants.externalControllerAddr)/configs?force=true") else { return }
         var request = URLRequest(url: url)
         request.httpMethod = "PUT"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        let configPath = ConfigManager.shared.configFileURL?.path ?? ""
-        request.httpBody = try? JSONSerialization.data(withJSONObject: ["path": configPath])
+        request.httpBody = try? JSONSerialization.data(withJSONObject: ["payload": yaml])
         _ = try? await URLSession.shared.data(for: request)
     }
 
@@ -390,11 +387,9 @@ struct HomeView: View {
                 defer { if wasConnected { vpnManager.start() } }
                 do {
                     let result = try await fetchSubscription(from: url)
-                    await ConfigManager.shared.downloadGeoDataIfNeeded()
                     if let validationError = ConfigManager.shared.validateSubscriptionConfig(result.raw) {
                         displayToast("Invalid: \(validationError)")
                         AppLogger.ui.error("Validation failed for \(name, privacy: .public): \(validationError, privacy: .public)")
-                        ConfigManager.shared.dumpDebugMergedConfig(result.raw, error: validationError)
                         return
                     }
                     if let i = subscriptions.firstIndex(where: { $0.id == id }) {
@@ -416,7 +411,7 @@ struct HomeView: View {
     private func deleteSubscription(at offsets: IndexSet) {
         for i in offsets where subscriptions[i].id == selectedSubscriptionID {
             selectedSubscriptionID = nil
-            UserDefaults(suiteName: AppConstants.appGroupIdentifier)?
+            AppConstants.sharedDefaults
                 .removeObject(forKey: "selectedSubscriptionID")
         }
         subscriptions.remove(atOffsets: offsets)
@@ -431,23 +426,15 @@ struct HomeView: View {
         Task {
             let wasConnected = await vpnManager.disconnectForFetch()
             defer { if wasConnected { vpnManager.start() } }
-            debugLog("=== refreshSubscription start: '\(name)' url=\(url)")
             do {
                 let result = try await fetchSubscription(from: url)
-                debugLog("fetched '\(name)': \(result.nodes.count) nodes, \(result.raw.count) raw bytes")
-                debugLog("raw preview (first 500): \(String(result.raw.prefix(500)))")
-                await ConfigManager.shared.downloadGeoDataIfNeeded()
-                debugLog("geo data check done, starting validation...")
                 if let validationError = ConfigManager.shared.validateSubscriptionConfig(result.raw) {
                     if let i = subscriptions.firstIndex(where: { $0.id == id }) {
                         subscriptions[i].isUpdating = false
                     }
-                    debugLog("VALIDATION FAILED: \(validationError)")
                     displayToast("Invalid: \(validationError)")
-                    ConfigManager.shared.dumpDebugMergedConfig(result.raw, error: validationError)
                     return
                 }
-                debugLog("validation passed")
                 if let i = subscriptions.firstIndex(where: { $0.id == id }) {
                     subscriptions[i].nodes = result.nodes
                     subscriptions[i].rawContent = result.raw
@@ -456,36 +443,15 @@ struct HomeView: View {
                 saveSubscriptions()
                 // Apply to config.yaml if this is the selected subscription
                 if id == selectedSubscriptionID {
-                    try? ConfigManager.shared.applySubscriptionConfig(result.raw)
-                    await Self.reloadMihomoConfig()
+                    let merged = (try? ConfigManager.shared.applySubscriptionConfig(result.raw)) ?? ""
+                    await Self.reloadMihomoConfig(with: merged)
                 }
                 displayToast("Updated \(name) (\(result.nodes.count) nodes)")
             } catch {
-                debugLog("ERROR: \(error.localizedDescription)")
                 if let i = subscriptions.firstIndex(where: { $0.id == id }) {
                     subscriptions[i].isUpdating = false
                 }
                 displayToast("Failed to fetch \(name)")
-            }
-        }
-    }
-
-    /// Append debug info to shared container debug_log.txt
-    private func debugLog(_ message: String) {
-        AppLogger.ui.debug("\(message, privacy: .public)")
-        guard let dir = FileManager.default.containerURL(
-            forSecurityApplicationGroupIdentifier: AppConstants.appGroupIdentifier
-        ) else { return }
-        let logURL = dir.appendingPathComponent("debug_log.txt")
-        let line = "[\(Date())] \(message)\n"
-        if let data = line.data(using: .utf8) {
-            if FileManager.default.fileExists(atPath: logURL.path),
-               let handle = try? FileHandle(forWritingTo: logURL) {
-                handle.seekToEndOfFile()
-                handle.write(data)
-                try? handle.close()
-            } else {
-                try? data.write(to: logURL)
             }
         }
     }
@@ -495,7 +461,6 @@ struct HomeView: View {
         isReloading = true
         let wasConnected = await vpnManager.disconnectForFetch()
         defer { if wasConnected { vpnManager.start() } }
-        await ConfigManager.shared.downloadGeoDataIfNeeded()
         var succeeded: [String] = []
         var failed: [(String, String)] = []
 
@@ -531,8 +496,8 @@ struct HomeView: View {
         if let selID = selectedSubscriptionID,
            let sub = subscriptions.first(where: { $0.id == selID }),
            let raw = sub.rawContent {
-            try? ConfigManager.shared.applySubscriptionConfig(raw)
-            await Self.reloadMihomoConfig()
+            let merged = (try? ConfigManager.shared.applySubscriptionConfig(raw)) ?? ""
+            await Self.reloadMihomoConfig(with: merged)
         }
         isReloading = false
         reloadResult = ReloadResult(succeeded: succeeded, failed: failed)
@@ -670,8 +635,6 @@ struct AddSubscriptionView: View {
                 Section("Subscription Info") {
                     TextField("Name", text: $name)
                     TextField("URL", text: $url)
-                        .keyboardType(.URL)
-                        .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
                 }
 
@@ -682,7 +645,6 @@ struct AddSubscriptionView: View {
                 }
             }
             .navigationTitle("Add Subscription")
-            .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
@@ -704,7 +666,7 @@ struct AddSubscriptionView: View {
         let snapshot = subscriptions
         Task.detached(priority: .background) {
             guard let data = try? JSONEncoder().encode(snapshot) else { return }
-            UserDefaults(suiteName: AppConstants.appGroupIdentifier)?
+            AppConstants.sharedDefaults
                 .set(data, forKey: "subscriptions")
         }
     }
@@ -891,13 +853,10 @@ struct EditSubscriptionView: View {
                 Section("Subscription Info") {
                     TextField("Name", text: $name)
                     TextField("URL", text: $url)
-                        .keyboardType(.URL)
-                        .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
                 }
             }
             .navigationTitle("Edit Subscription")
-            .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }

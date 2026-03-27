@@ -25,12 +25,11 @@ final class ConfigManager {
 
     private init() {}
 
-    var sharedContainerURL: URL? {
-        fileManager.containerURL(forSecurityApplicationGroupIdentifier: AppConstants.appGroupIdentifier)
-    }
-
     var configDirectoryURL: URL? {
-        sharedContainerURL?.appendingPathComponent("mihomo", isDirectory: true)
+        guard let containerPath = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
+            return nil
+        }
+        return containerPath.appendingPathComponent("BaoLianDeng/mihomo", isDirectory: true)
     }
 
     var configFileURL: URL? {
@@ -68,12 +67,12 @@ final class ConfigManager {
 
     /// Save the desired mode to UserDefaults. The tunnel reads this on startup.
     func setMode(_ mode: String) {
-        UserDefaults(suiteName: AppConstants.appGroupIdentifier)?.set(mode, forKey: "proxyMode")
+        AppConstants.sharedDefaults.set(mode, forKey: "proxyMode")
     }
 
     /// Apply the saved log level to config.yaml so Mihomo's engine uses it on startup.
     func applyLogLevel() {
-        let level = UserDefaults(suiteName: AppConstants.appGroupIdentifier)?
+        let level = AppConstants.sharedDefaults
             .string(forKey: "logLevel") ?? "info"
         guard var config = try? loadConfig() else { return }
         let levels = ["debug", "info", "warning", "error", "silent"]
@@ -85,7 +84,7 @@ final class ConfigManager {
 
     /// Apply the saved mode to config.yaml. Call after applySelectedSubscription/sanitizeConfig.
     func applyMode() {
-        let mode = UserDefaults(suiteName: AppConstants.appGroupIdentifier)?
+        let mode = AppConstants.sharedDefaults
             .string(forKey: "proxyMode") ?? "rule"
         guard var config = try? loadConfig() else { return }
         let modes = ["rule", "global", "direct"]
@@ -107,8 +106,8 @@ final class ConfigManager {
     /// Update all select-type proxy groups to contain only the selected node.
     /// This ensures the correct node is active from startup without needing REST API selection.
     func applySelectedNode() {
-        let defaults = UserDefaults(suiteName: AppConstants.appGroupIdentifier)
-        guard let selectedNode = defaults?.string(forKey: "selectedNode"), !selectedNode.isEmpty else {
+        let defaults = AppConstants.sharedDefaults
+        guard let selectedNode = defaults.string(forKey: "selectedNode"), !selectedNode.isEmpty else {
             return
         }
         guard var yaml = try? loadConfig() else { return }
@@ -159,8 +158,8 @@ final class ConfigManager {
         guard enabled else { return lines.joined(separator: "\n") }
 
         // Read selected node from shared UserDefaults
-        let defaults = UserDefaults(suiteName: AppConstants.appGroupIdentifier)
-        let selectedNode = defaults?.string(forKey: "selectedNode")
+        let defaults = AppConstants.sharedDefaults
+        let selectedNode = defaults.string(forKey: "selectedNode")
 
         // Find proxy-groups: line and insert GLOBAL group right after it
         guard let pgIdx = lines.firstIndex(where: {
@@ -189,8 +188,17 @@ final class ConfigManager {
         var lines = yaml.components(separatedBy: "\n")
         var hasGeoAutoUpdate = false
 
+        var inTunBlock = false
         lines = lines.map { line in
             let trimmed = line.trimmingCharacters(in: .whitespaces)
+            // Track top-level block transitions
+            if !trimmed.isEmpty && !line.hasPrefix(" ") && !line.hasPrefix("\t") {
+                inTunBlock = trimmed.hasPrefix("tun:")
+            }
+            // Disable TUN mode — proxy mode uses tun2socks, not Mihomo's built-in TUN
+            if inTunBlock && trimmed.hasPrefix("enable:") {
+                return line.replacingOccurrences(of: "enable: true", with: "enable: false")
+            }
             // Disable automatic geo database updates
             if trimmed.hasPrefix("geo-auto-update:") {
                 hasGeoAutoUpdate = true
@@ -200,10 +208,6 @@ final class ConfigManager {
             // interface address, so bind() fails. Use localhost instead.
             if trimmed.hasPrefix("listen:") && trimmed.contains("198.18.0.2") {
                 return line.replacingOccurrences(of: "198.18.0.2:53", with: "127.0.0.1:1053")
-            }
-            // Switch TUN stack from system to gvisor for reliable TCP on iOS
-            if trimmed == "stack: system" {
-                return line.replacingOccurrences(of: "stack: system", with: "stack: gvisor")
             }
             // Replace blocked foreign DNS fallback servers with China-local ones
             if trimmed == "- https://1.1.1.1/dns-query" {
@@ -226,10 +230,35 @@ final class ConfigManager {
         try? saveConfig(lines.joined(separator: "\n"))
     }
 
+    /// Sanitize a config string in-place (same rules as sanitizeConfig but on a String).
+    static func sanitizeConfigString(_ config: inout String) {
+        config = config
+            .replacingOccurrences(of: "geo-auto-update: true", with: "geo-auto-update: false")
+            .replacingOccurrences(of: "198.18.0.2:53", with: "127.0.0.1:1053")
+        // Disable TUN mode — block-aware so we only patch enable: inside the tun: block
+        var lines = config.components(separatedBy: "\n")
+        var inTunBlock = false
+        lines = lines.map { line in
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if !trimmed.isEmpty && !line.hasPrefix(" ") && !line.hasPrefix("\t") {
+                inTunBlock = trimmed.hasPrefix("tun:")
+            }
+            if inTunBlock && trimmed.hasPrefix("enable:") {
+                return line.replacingOccurrences(of: "enable: true", with: "enable: false")
+            }
+            return line
+        }
+        config = lines.joined(separator: "\n")
+    }
+
     /// Merge a Clash subscription YAML into our base config.
-    /// Keeps our TUN/DNS/port settings and local rules; takes only proxies and proxy-groups from the subscription.
-    func applySubscriptionConfig(_ subscriptionYAML: String) throws {
-        try saveConfig(mergeSubscription(subscriptionYAML))
+    /// Keeps our DNS/port settings and local rules; takes only proxies and proxy-groups from the subscription.
+    /// Returns the merged YAML so callers can push it via REST API without re-reading the file.
+    @discardableResult
+    func applySubscriptionConfig(_ subscriptionYAML: String) throws -> String {
+        let merged = mergeSubscription(subscriptionYAML)
+        try saveConfig(merged)
+        return merged
     }
 
     /// Re-apply the currently selected subscription's config from shared UserDefaults.
@@ -238,9 +267,9 @@ final class ConfigManager {
     /// Returns true if a subscription was applied, false if none selected or no rawContent.
     @discardableResult
     func applySelectedSubscription() -> Bool {
-        let defaults = UserDefaults(suiteName: AppConstants.appGroupIdentifier)
-        guard let idString = defaults?.string(forKey: "selectedSubscriptionID"),
-              let data = defaults?.data(forKey: "subscriptions") else {
+        let defaults = AppConstants.sharedDefaults
+        guard let idString = defaults.string(forKey: "selectedSubscriptionID"),
+              let data = defaults.data(forKey: "subscriptions") else {
             return false
         }
         // Decode just the fields we need — avoids coupling to the full Subscription type
@@ -262,42 +291,9 @@ final class ConfigManager {
         }
     }
 
-    /// Download GeoIP/GeoSite databases to the config directory if they don't already exist.
-    /// These are required for GEOIP and GEOSITE rules in subscription configs.
-    func downloadGeoDataIfNeeded() async {
-        guard let configDir = configDirectoryURL else { return }
-
-        let files: [(String, String)] = [
-            ("geoip.metadb", "https://github.com/MetaCubeX/meta-rules-dat/releases/latest/download/geoip.metadb"),
-            ("geosite.dat", "https://github.com/MetaCubeX/meta-rules-dat/releases/latest/download/geosite.dat"),
-        ]
-
-        for (filename, urlString) in files {
-            let fileURL = configDir.appendingPathComponent(filename)
-            guard !fileManager.fileExists(atPath: fileURL.path) else { continue }
-            guard let url = URL(string: urlString) else { continue }
-
-            do {
-                let (data, _) = try await URLSession.shared.data(from: url)
-                try data.write(to: fileURL)
-            } catch {
-                AppLogger.config.error("Failed to download \(filename, privacy: .public): \(error, privacy: .public)")
-            }
-        }
-    }
-
     /// Validate a subscription YAML by merging it with the base config and running Mihomo's parser.
     /// Returns nil if valid, or an error message string if invalid.
     func validateSubscriptionConfig(_ yaml: String) -> String? {
-        // Ensure Mihomo's home directory is set so it can find geoip.metadb / geosite.dat
-        if let configDir = configDirectoryURL?.path {
-            BridgeSetHomeDir(configDir)
-            AppLogger.config.debug("validateSubscriptionConfig: homeDir=\(configDir, privacy: .public)")
-            // Check if geo files exist
-            let geoipPath = configDir + "/geoip.metadb"
-            let geositePath = configDir + "/geosite.dat"
-            AppLogger.config.debug("geoip.metadb exists: \(self.fileManager.fileExists(atPath: geoipPath)), geosite.dat exists: \(self.fileManager.fileExists(atPath: geositePath))")
-        }
         let merged = mergeSubscription(yaml)
         AppLogger.config.debug("merged config length: \(merged.count), preview: \(String(merged.prefix(300)), privacy: .public)")
         var err: NSError?
@@ -310,25 +306,6 @@ final class ConfigManager {
         return err?.localizedDescription
     }
 
-    /// Write the merged config and error to a debug file for troubleshooting.
-    func dumpDebugMergedConfig(_ subscriptionYAML: String, error: String) {
-        guard let dir = sharedContainerURL else { return }
-        let merged = mergeSubscription(subscriptionYAML)
-        let debug = """
-        === VALIDATION ERROR ===
-        \(error)
-
-        === MERGED CONFIG ===
-        \(merged)
-
-        === RAW SUBSCRIPTION (first 2000 chars) ===
-        \(String(subscriptionYAML.prefix(2000)))
-        """
-        let debugURL = dir.appendingPathComponent("debug_merged_config.txt")
-        try? debug.write(to: debugURL, atomically: true, encoding: .utf8)
-        AppLogger.config.debug("Debug merged config written to \(debugURL.path, privacy: .public)")
-    }
-
     /// Merge subscription YAML: take proxies, proxy-groups, rules, and their providers from subscription.
     private func mergeSubscription(_ yaml: String) -> String {
         let base = (try? loadConfig()) ?? defaultConfig()
@@ -337,7 +314,7 @@ final class ConfigManager {
 
     /// Pure merge logic — takes all inputs as parameters for testability.
     /// Overwrites local config's proxy nodes, proxy groups, and rules with subscription data.
-    /// Keeps the header (ports, DNS, TUN settings) from the base config.
+    /// Keeps the header (ports, DNS settings) from the base config.
     static func mergeSubscription(_ yaml: String, baseConfig: String, defaultConfig: String) -> String {
         // 1. Extract raw sections from subscription (preserves exact formatting for proxies/providers)
         let sub = extractYAMLSections(from: yaml, named: ["proxies", "proxy-groups", "proxy-providers", "rules", "rule-providers"])
@@ -438,23 +415,13 @@ final class ConfigManager {
         allow-lan: false
         external-controller: \(AppConstants.externalControllerAddr)
 
-        tun:
-          enable: true
-          stack: gvisor
-          inet6-address: [fdfe:dcba:9876::1/126]
-          dns-hijack:
-            - \(AppConstants.tunDNS):53
-          auto-route: false
-          auto-detect-interface: false
-
         geo-auto-update: false
 
         dns:
           enable: true
           ipv6: true
           listen: 127.0.0.1:1053
-          enhanced-mode: fake-ip
-          fake-ip-range: 198.18.0.1/16
+          enhanced-mode: redir-host
           nameserver:
             - https://dns.alidns.com/dns-query
             - https://doh.pub/dns-query

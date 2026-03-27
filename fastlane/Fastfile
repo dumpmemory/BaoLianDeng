@@ -1,6 +1,6 @@
-default_platform(:ios)
+default_platform(:mac)
 
-platform :ios do
+platform :mac do
   before_all do
     app_store_connect_api_key(
       key_id: ENV.fetch("ASC_KEY_ID"),

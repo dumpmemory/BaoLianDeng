@@ -71,7 +71,7 @@ final class TrafficStore: ObservableObject {
     private var todayBaseDownload: Int64 = 0
     private var currentDate: String = ""
     private var timer: Timer?
-    private let defaults = UserDefaults(suiteName: AppConstants.appGroupIdentifier)
+    private let defaults = AppConstants.sharedDefaults
     private var subscriptionNameCache: [String: String] = [:]
 
     private static let dateFormatter: DateFormatter = {
@@ -101,9 +101,9 @@ final class TrafficStore: ObservableObject {
 
     private func refreshSubscriptionCache() {
         Task.detached(priority: .utility) { [weak self] in
-            let defaults = UserDefaults(suiteName: AppConstants.appGroupIdentifier)
+            let defaults = AppConstants.sharedDefaults
             var cache: [String: String] = [:]
-            if let data = defaults?.data(forKey: "subscriptions"),
+            if let data = defaults.data(forKey: "subscriptions"),
                let arr = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] {
                 for sub in arr {
                     if let sid = sub["id"] as? String, let n = sub["name"] as? String, !n.isEmpty {
@@ -210,7 +210,7 @@ final class TrafficStore: ObservableObject {
         let deltaUp = sessionProxyUpload - lastAttributedUpload
         let deltaDown = sessionProxyDownload - lastAttributedDownload
         if (deltaUp > 0 || deltaDown > 0),
-           let subID = defaults?.string(forKey: "selectedSubscriptionID"),
+           let subID = defaults.string(forKey: "selectedSubscriptionID"),
            !subID.isEmpty {
             attributeDelta(upload: deltaUp, download: deltaDown, toSubscriptionID: subID)
         }
@@ -254,7 +254,7 @@ final class TrafficStore: ObservableObject {
     }
 
     private func loadRecords() {
-        guard let data = defaults?.data(forKey: AppConstants.dailyTrafficKey),
+        guard let data = defaults.data(forKey: AppConstants.dailyTrafficKey),
               let records = try? JSONDecoder().decode([DailyTraffic].self, from: data) else {
             dailyRecords = []
             return
@@ -266,7 +266,7 @@ final class TrafficStore: ObservableObject {
         let snapshot = dailyRecords
         Task.detached(priority: .background) {
             guard let data = try? JSONEncoder().encode(snapshot) else { return }
-            UserDefaults(suiteName: AppConstants.appGroupIdentifier)?
+            AppConstants.sharedDefaults
                 .set(data, forKey: AppConstants.dailyTrafficKey)
         }
     }
@@ -295,7 +295,7 @@ final class TrafficStore: ObservableObject {
     }
 
     private func loadSubscriptionUsages() {
-        guard let data = defaults?.data(forKey: AppConstants.subscriptionUsageKey),
+        guard let data = defaults.data(forKey: AppConstants.subscriptionUsageKey),
               let usages = try? JSONDecoder().decode([SubscriptionUsage].self, from: data) else {
             subscriptionUsages = []
             return
@@ -307,14 +307,14 @@ final class TrafficStore: ObservableObject {
         let snapshot = subscriptionUsages
         Task.detached(priority: .background) {
             guard let data = try? JSONEncoder().encode(snapshot) else { return }
-            UserDefaults(suiteName: AppConstants.appGroupIdentifier)?
+            AppConstants.sharedDefaults
                 .set(data, forKey: AppConstants.subscriptionUsageKey)
         }
     }
 
     func resetSubscriptionUsages() {
         subscriptionUsages.removeAll()
-        defaults?.removeObject(forKey: AppConstants.subscriptionUsageKey)
+        defaults.removeObject(forKey: AppConstants.subscriptionUsageKey)
         refreshSubscriptionCache()
     }
 }

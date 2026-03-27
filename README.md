@@ -1,6 +1,6 @@
 # BaoLianDeng
 
-iOS global proxy app powered by [Mihomo](https://github.com/MetaCubeX/mihomo) (Clash Meta) core.
+macOS VPN proxy app powered by [Mihomo](https://github.com/MetaCubeX/mihomo) (Clash Meta) core.
 
 ## Features
 
@@ -10,13 +10,12 @@ iOS global proxy app powered by [Mihomo](https://github.com/MetaCubeX/mihomo) (C
 - **Config Editor** — In-app YAML editor with validation for both local config and subscription configs
 - **Proxy Groups** — View and switch proxy groups via Mihomo's REST API
 - **Tunnel Logs** — Real-time log viewer for debugging the network extension
-- **Aggressive Memory Management** — Go runtime tuned for iOS's ~15 MB network extension limit
 
 ## Architecture
 
 ```
 ┌─────────────────────────────────────────────┐
-│              iOS App (SwiftUI)              │
+│             macOS App (SwiftUI)             │
 │  ┌──────────┬────────┬───────┬───────────┐ │
 │  │  Home    │ Config │ Data  │ Settings  │ │
 │  │ Subs &   │ YAML   │Charts │ Groups /  │ │
@@ -25,12 +24,12 @@ iOS global proxy app powered by [Mihomo](https://github.com/MetaCubeX/mihomo) (C
 │  ┌───────────────────────────────────────┐  │
 │  │  VPNManager (NETunnelProviderManager) │  │
 │  └──────────────────┬────────────────────┘  │
-├─────────────────────┼──────────────────────-┤
-│       Network Extension (PacketTunnel)      │
+├─────────────────────┼───────────────────────┤
+│      System Extension (PacketTunnel)        │
 │  ┌──────────────────┴────────────────────┐  │
 │  │    NEPacketTunnelProvider             │  │
 │  │    ┌──────────────────────────────┐   │  │
-│  │    │  MihomoCore.xcframework (Go) │   │  │
+│  │    │ MihomoCore.xcframework (Rust)│   │  │
 │  │    │  - Proxy Engine              │   │  │
 │  │    │  - DNS (fake-ip)             │   │  │
 │  │    │  - Rules / Routing           │   │  │
@@ -39,23 +38,22 @@ iOS global proxy app powered by [Mihomo](https://github.com/MetaCubeX/mihomo) (C
 └─────────────────────────────────────────────┘
 ```
 
-**IPC** between the app and tunnel extension uses `NETunnelProviderSession.sendMessage` for mode switching, traffic stats, and version queries. Both targets share config files and preferences via App Group `group.io.github.baoliandeng`.
+**IPC** between the app and tunnel extension uses `NETunnelProviderSession.sendMessage` for mode switching, traffic stats, and version queries. Both targets share config files and preferences via App Group `group.io.github.baoliandeng.macos`.
 
 ## Prerequisites
 
-- macOS with Xcode 15+
-- Go 1.22+
+- macOS 14.0+ with Xcode 15+
+- Rust toolchain (`rustup` with `aarch64-apple-darwin` and `x86_64-apple-darwin` targets)
 
 ## Build
 
-### 1. Build the Go framework
+### 1. Build the Rust framework
 
 ```bash
-make framework          # iOS + Simulator (arm64 + x86_64)
-make framework-arm64    # arm64 only (faster, device-only)
+make framework    # macOS universal (arm64 + x86_64)
 ```
 
-This compiles the Mihomo Go core into `Framework/MihomoCore.xcframework` using gomobile. The `make` target installs gomobile automatically if needed.
+This compiles the Mihomo Rust FFI into `Framework/MihomoCore.xcframework`.
 
 ### 2. Configure signing
 
@@ -69,7 +67,7 @@ cp Local.xcconfig.template Local.xcconfig
 > **Finding your Team ID:** Apple Developer portal → Membership → Team ID (10-character string, e.g. `AB12CD34EF`).
 
 Both targets require these capabilities (already configured in entitlements):
-- **App Groups** — `group.io.github.baoliandeng`
+- **App Groups** — `group.io.github.baoliandeng.macos`
 - **Network Extensions** — Packet Tunnel Provider
 
 If you distribute under a different bundle ID, also update `appGroupIdentifier` and `tunnelBundleIdentifier` in `Shared/Constants.swift` and the matching entitlement files.
@@ -78,151 +76,9 @@ If you distribute under a different bundle ID, also update `appGroupIdentifier` 
 
 ```bash
 open BaoLianDeng.xcodeproj
-```
-
-Select your device and press `Cmd+R`.
-
-**CI-style simulator build (no signing):**
-
-```bash
-xcodebuild build \
-  -project BaoLianDeng.xcodeproj \
-  -scheme BaoLianDeng \
-  -configuration Debug \
-  -destination 'generic/platform=iOS Simulator' \
-  CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO
-```
-
-## Configuration
-
-The app ships with a sensible default config. You can also manage configuration through:
-
-1. **Subscriptions** (recommended) — Add a subscription URL in the Home tab. The app parses Clash YAML and base64-encoded proxy lists, merges proxies into the active config, and auto-downloads GeoIP/GeoSite databases for rule matching.
-
-2. **Config Editor** — Edit the YAML directly in the Config tab with syntax validation.
-
-3. **Manual file** — Place a `config.yaml` in the app's shared container.
-
-Example minimal config:
-
-```yaml
-mixed-port: 7890
-mode: rule
-log-level: info
-
-dns:
-  enable: true
-  listen: 127.0.0.1:1053
-  enhanced-mode: fake-ip
-  fake-ip-range: 198.18.0.1/16
-  nameserver:
-    - https://dns.alidns.com/dns-query
-
-proxies:
-  - name: "my-proxy"
-    type: ss
-    server: your-server.com
-    port: 8388
-    cipher: aes-256-gcm
-    password: "your-password"
-
-proxy-groups:
-  - name: PROXY
-    type: select
-    proxies:
-      - my-proxy
-
-rules:
-  - GEOIP,CN,DIRECT
-  - MATCH,PROXY
-```
-
-## Install Pre-built IPA
-
-Pre-built IPA files are available on the [Releases](https://github.com/madeye/BaoLianDeng/releases) page.
-
-### AltStore / SideStore (Recommended)
-
-Add this source URL in AltStore or SideStore to receive automatic updates:
-
-```
-https://raw.githubusercontent.com/madeye/BaoLianDeng/main/altstore-source.json
-```
-
-**Or** install manually from a downloaded IPA:
-
-1. Download `BaoLianDeng.ipa` from the latest release
-2. Open [AltStore](https://altstore.io/) or [SideStore](https://sidestore.io/) on your device
-3. Tap **+** and select the downloaded IPA
-4. The app will be automatically re-signed and installed
-
-### Sideloadly (macOS / Windows)
-
-1. Download and install [Sideloadly](https://sideloadly.io/)
-2. Connect your iPhone via USB
-3. Drag `BaoLianDeng.ipa` into Sideloadly
-4. Enter your Apple ID and click **Start**
-5. Trust the developer profile on your device: **Settings → General → VPN & Device Management**
-
-### Manual re-sign with codesign (macOS)
-
-```bash
-# Unzip the IPA
-unzip BaoLianDeng.ipa -d Payload
-
-# Find your signing identity
-security find-identity -v -p codesigning
-
-# Re-sign the Network Extension first, then the app
-codesign -f -s "Apple Development: you@example.com (XXXXXXXXXX)" \
-  --entitlements PacketTunnel.entitlements \
-  Payload/BaoLianDeng.app/PlugIns/PacketTunnel.appex
-
-codesign -f -s "Apple Development: you@example.com (XXXXXXXXXX)" \
-  --entitlements BaoLianDeng.entitlements \
-  Payload/BaoLianDeng.app
-
-# Re-package
-zip -r BaoLianDeng-signed.ipa Payload
-```
-
-> **Note:** This app requires **Network Extension (packet-tunnel-provider)** and **App Groups** entitlements. Free Apple Developer accounts may not support Network Extension — a paid Apple Developer account ($99/year) is recommended.
-
-## Project Structure
-
-```
-BaoLianDeng/
-├── BaoLianDeng/                    # Main iOS app target
-│   ├── BaoLianDengApp.swift        # Entry point with TabView
-│   ├── Views/
-│   │   ├── HomeView.swift          # Subscriptions & node selection
-│   │   ├── ConfigEditorView.swift  # Dual-mode YAML editor
-│   │   ├── TrafficView.swift       # Daily charts & session stats
-│   │   ├── SettingsView.swift      # Proxy groups, log level, about
-│   │   ├── ProxyGroupView.swift    # Proxy group switching
-│   │   ├── TunnelLogView.swift     # Real-time log viewer
-│   │   ├── AboutView.swift         # App info & links
-│   │   └── YAMLEditor.swift        # YAML syntax highlighting
-│   ├── Models/
-│   │   └── TrafficStore.swift      # Traffic stats singleton
-│   └── Assets.xcassets/
-├── PacketTunnel/                   # Network Extension target
-│   └── PacketTunnelProvider.swift
-├── Shared/                         # Code shared between targets
-│   ├── Constants.swift             # App group ID, bundle IDs, network constants
-│   ├── ConfigManager.swift         # Config I/O, subscription merging, sanitization
-│   └── VPNManager.swift            # VPN lifecycle as ObservableObject
-├── Go/mihomo-bridge/               # Go bridge to Mihomo core
-│   ├── bridge.go                   # gomobile API (Bridge* exports)
-│   ├── tun_ios.go                  # iOS TUN device integration
-│   ├── Makefile                    # gomobile build targets
-│   └── patches/                    # iOS-specific dependency patches
-├── Framework/                      # Built MihomoCore.xcframework
-├── fastlane/                       # App Store metadata & upload
-├── scripts/                        # Screenshot automation
-└── Makefile                        # Top-level build (make framework)
+# Select BaoLianDeng scheme → My Mac → Run (⌘R)
 ```
 
 ## License
 
-GPL-3.0
+GPL-3.0 — see [LICENSE](LICENSE) for details.

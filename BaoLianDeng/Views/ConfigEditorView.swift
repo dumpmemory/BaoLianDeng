@@ -74,7 +74,6 @@ struct ConfigEditorView: View {
                     }
                 }
             }
-            .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .principal) {
                     Text("Config")
@@ -85,23 +84,15 @@ struct ConfigEditorView: View {
                             scrollToTopTrigger.toggle()
                         }
                 }
-                ToolbarItem(placement: .topBarLeading) {
-                    if !isSubscriptionSource {
-                        EditButton()
-                    }
-                }
-                ToolbarItem(placement: .topBarTrailing) {
+                ToolbarItem(placement: .automatic) {
                     if !isSubscriptionSource {
                         Button("Save") { saveConfig() }
                             .disabled(isSaving)
                     }
                 }
-                ToolbarItem(placement: .bottomBar) {
+                ToolbarItem(placement: .automatic) {
                     if !isSubscriptionSource {
-                        HStack {
-                            Button("Reset Default", role: .destructive) { resetConfig() }
-                            Spacer()
-                        }
+                        Button("Reset Default", role: .destructive) { resetConfig() }
                     }
                 }
             }
@@ -346,10 +337,10 @@ struct ConfigEditorView: View {
     }
 
     private func loadSelectedSubscription() {
-        let defaults = UserDefaults(suiteName: AppConstants.appGroupIdentifier)
-        guard let data = defaults?.data(forKey: "subscriptions"),
+        let defaults = AppConstants.sharedDefaults
+        guard let data = defaults.data(forKey: "subscriptions"),
               let subs = try? JSONDecoder().decode([Subscription].self, from: data),
-              let idString = defaults?.string(forKey: "selectedSubscriptionID"),
+              let idString = defaults.string(forKey: "selectedSubscriptionID"),
               let id = UUID(uuidString: idString),
               let sub = subs.first(where: { $0.id == id }) else {
             selectedSubscription = nil
@@ -430,7 +421,6 @@ struct ProxyGroupDetailView: View {
                                 set: { group.url = $0.isEmpty ? nil : $0 }
                             ))
                             .multilineTextAlignment(.trailing)
-                            .textInputAutocapitalization(.never)
                         }
                         HStack {
                             Text("Interval")
@@ -440,7 +430,6 @@ struct ProxyGroupDetailView: View {
                                 set: { group.interval = $0 }
                             ), format: .number)
                             .multilineTextAlignment(.trailing)
-                            .keyboardType(.numberPad)
                         }
                     }
                 } else {
@@ -468,7 +457,6 @@ struct ProxyGroupDetailView: View {
                     }
                     HStack {
                         TextField("Add proxy name", text: $newProxyName)
-                            .textInputAutocapitalization(.never)
                         Button {
                             let name = newProxyName.trimmingCharacters(in: .whitespaces)
                             if !name.isEmpty {
@@ -490,7 +478,6 @@ struct ProxyGroupDetailView: View {
             }
         }
         .navigationTitle(group.name)
-        .navigationBarTitleDisplayMode(.inline)
     }
 }
 
@@ -515,7 +502,6 @@ struct AddProxyGroupSheet: View {
                 }
             }
             .navigationTitle("Add Proxy Group")
-            .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
@@ -569,7 +555,6 @@ struct AddRuleSheet: View {
 
                 if type != "MATCH" {
                     TextField(valuePlaceholder, text: $value)
-                        .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
                 }
 
@@ -584,7 +569,6 @@ struct AddRuleSheet: View {
                 }
             }
             .navigationTitle("Add Rule")
-            .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }

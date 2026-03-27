@@ -17,7 +17,7 @@ import SwiftUI
 
 struct SettingsView: View {
     @EnvironmentObject var vpnManager: VPNManager
-    @AppStorage("logLevel", store: UserDefaults(suiteName: AppConstants.appGroupIdentifier))
+    @AppStorage("logLevel", store: AppConstants.sharedDefaults)
     private var logLevel = "info"
 
     var body: some View {

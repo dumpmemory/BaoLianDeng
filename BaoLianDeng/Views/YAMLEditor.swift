@@ -14,11 +14,92 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 import SwiftUI
-import UIKit
 
-// MARK: - YAML Syntax Highlighted Text Editor
+// MARK: - YAML Error (shared)
 
-struct YAMLEditor: UIViewRepresentable {
+struct YAMLError: Identifiable {
+    let id = UUID()
+    let line: Int
+    let message: String
+}
+
+// MARK: - YAML Validator (shared)
+
+enum YAMLValidator {
+    static func validate(_ text: String) -> [YAMLError] {
+        var errors: [YAMLError] = []
+        let lines = text.components(separatedBy: "\n")
+        var indentStack: [Int] = [0]
+
+        for (index, line) in lines.enumerated() {
+            let lineNum = index + 1
+
+            // Skip empty lines and comments
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if trimmed.isEmpty || trimmed.hasPrefix("#") { continue }
+
+            // Check for tabs (YAML only allows spaces)
+            if line.contains("\t") {
+                errors.append(YAMLError(line: lineNum, message: "Tabs are not allowed in YAML, use spaces"))
+            }
+
+            // Calculate indentation
+            let indent = line.prefix(while: { $0 == " " }).count
+
+            // Check for trailing whitespace on non-empty lines
+            if line != trimmed && line.last == " " && !trimmed.isEmpty {
+                // This is a soft warning, skip for now
+            }
+
+            // Check for duplicate colons in key (likely malformed)
+            if let colonIdx = trimmed.firstIndex(of: ":"), !trimmed.hasPrefix("-") {
+                let afterColon = trimmed[trimmed.index(after: colonIdx)...]
+                if afterColon.first != nil && afterColon.first != " " && afterColon.first != "\n"
+                    && !trimmed.hasPrefix("http") && !trimmed.hasPrefix("https")
+                    && !trimmed.hasPrefix("\"") && !trimmed.hasPrefix("'")
+                    && !trimmed.contains("://") {
+                    errors.append(YAMLError(line: lineNum, message: "Missing space after colon"))
+                }
+            }
+
+            // Check for invalid indent jump
+            if indent > (indentStack.last ?? 0) + 8 {
+                errors.append(YAMLError(line: lineNum, message: "Unexpected indentation increase"))
+            }
+
+            // Update indent stack
+            if indent > (indentStack.last ?? 0) {
+                indentStack.append(indent)
+            } else {
+                while let last = indentStack.last, last > indent {
+                    indentStack.removeLast()
+                }
+            }
+
+            // Check for unclosed quotes
+            let doubleQuotes = trimmed.filter { $0 == "\"" }.count
+            let singleQuotes = trimmed.filter { $0 == "'" }.count
+            // Simple check: odd number of unescaped quotes
+            if doubleQuotes % 2 != 0 && !trimmed.contains("\\\"") {
+                errors.append(YAMLError(line: lineNum, message: "Unclosed double quote"))
+            }
+            if singleQuotes % 2 != 0 {
+                errors.append(YAMLError(line: lineNum, message: "Unclosed single quote"))
+            }
+
+            // Check for mapping with missing value (key: followed by nothing, then another key at same level)
+            // This is complex to detect reliably, skip for basic validator
+        }
+
+        return errors
+    }
+}
+
+import AppKit
+
+// MARK: - YAML Syntax Highlighted Text Editor (macOS)
+
+struct YAMLEditor: NSViewRepresentable {
     @Binding var text: String
     @Binding var validationErrors: [YAMLError]
     var isEditable: Bool = true
@@ -27,41 +108,50 @@ struct YAMLEditor: UIViewRepresentable {
         Coordinator(self)
     }
 
-    func makeUIView(context: Context) -> UITextView {
-        let textView = UITextView()
+    func makeNSView(context: Context) -> NSScrollView {
+        let scrollView = NSScrollView()
+        scrollView.hasVerticalScroller = true
+        scrollView.hasHorizontalScroller = true
+        scrollView.autohidesScrollers = true
+        scrollView.borderType = .noBorder
+
+        let textView = NSTextView()
         textView.delegate = context.coordinator
         textView.font = .monospacedSystemFont(ofSize: 13, weight: .regular)
-        textView.backgroundColor = .systemBackground
-        textView.autocapitalizationType = .none
-        textView.autocorrectionType = .no
-        textView.smartDashesType = .no
-        textView.smartQuotesType = .no
-        textView.smartInsertDeleteType = .no
-        textView.spellCheckingType = .no
-        textView.keyboardType = .asciiCapable
-        textView.textContainerInset = UIEdgeInsets(top: 12, left: 8, bottom: 12, right: 8)
-        textView.alwaysBounceVertical = true
-        // Enable horizontal scrolling for long lines
-        textView.isScrollEnabled = true
-        textView.textContainer.lineBreakMode = .byWordWrapping
-        textView.textContainer.widthTracksTextView = true
+        textView.backgroundColor = .textBackgroundColor
+        textView.isAutomaticQuoteSubstitutionEnabled = false
+        textView.isAutomaticDashSubstitutionEnabled = false
+        textView.isAutomaticSpellingCorrectionEnabled = false
+        textView.isContinuousSpellCheckingEnabled = false
+        textView.isGrammarCheckingEnabled = false
+        textView.isAutomaticTextReplacementEnabled = false
+        textView.isRichText = false
+        textView.textContainerInset = NSSize(width: 8, height: 12)
+        textView.isVerticallyResizable = true
+        textView.isHorizontallyResizable = false
+        textView.autoresizingMask = [.width]
+        textView.textContainer?.widthTracksTextView = true
         textView.isEditable = isEditable
-        return textView
+
+        scrollView.documentView = textView
+        return scrollView
     }
 
-    func updateUIView(_ textView: UITextView, context: Context) {
+    func updateNSView(_ scrollView: NSScrollView, context: Context) {
+        guard let textView = scrollView.documentView as? NSTextView else { return }
         textView.isEditable = isEditable
         // Avoid re-applying if the user is actively editing
-        if textView.text != text {
-            let selectedRange = textView.selectedRange
+        if textView.string != text {
+            let selectedRanges = textView.selectedRanges
             context.coordinator.isUpdating = true
-            textView.attributedText = YAMLHighlighter.highlight(text)
-            textView.selectedRange = selectedRange
+            let highlighted = YAMLHighlighter.highlight(text)
+            textView.textStorage?.setAttributedString(highlighted)
+            textView.selectedRanges = selectedRanges
             context.coordinator.isUpdating = false
         }
     }
 
-    class Coordinator: NSObject, UITextViewDelegate {
+    class Coordinator: NSObject, NSTextViewDelegate {
         var parent: YAMLEditor
         var isUpdating = false
         private var debounceTimer: Timer?
@@ -70,50 +160,53 @@ struct YAMLEditor: UIViewRepresentable {
             self.parent = parent
         }
 
-        func textViewDidChange(_ textView: UITextView) {
-            guard !isUpdating else { return }
+        func textDidChange(_ notification: Notification) {
+            guard !isUpdating, let textView = notification.object as? NSTextView else { return }
 
             // Update the binding
-            parent.text = textView.text
+            parent.text = textView.string
 
             // Re-highlight with debounce to avoid lag during fast typing
             debounceTimer?.invalidate()
             debounceTimer = Timer.scheduledTimer(withTimeInterval: 0.3, repeats: false) { [weak self] _ in
                 guard let self = self else { return }
                 self.isUpdating = true
-                let selectedRange = textView.selectedRange
-                textView.attributedText = YAMLHighlighter.highlight(textView.text)
-                // Restore cursor position safely
-                if selectedRange.location <= textView.textStorage.length {
-                    textView.selectedRange = selectedRange
+                let selectedRanges = textView.selectedRanges
+                let highlighted = YAMLHighlighter.highlight(textView.string)
+                textView.textStorage?.setAttributedString(highlighted)
+                // Restore cursor positions safely
+                let safeRanges = selectedRanges.filter {
+                    let r = $0.rangeValue
+                    return r.location + r.length <= (textView.textStorage?.length ?? 0)
                 }
+                textView.selectedRanges = safeRanges.isEmpty ? selectedRanges : safeRanges
                 self.isUpdating = false
 
                 // Validate
-                self.parent.validationErrors = YAMLValidator.validate(textView.text)
+                self.parent.validationErrors = YAMLValidator.validate(textView.string)
             }
         }
     }
 }
 
-// MARK: - YAML Syntax Highlighter
+// MARK: - YAML Syntax Highlighter (macOS)
 
 enum YAMLHighlighter {
     // Color palette
-    private static let keyColor = UIColor.systemBlue
-    private static let stringColor = UIColor.systemGreen
-    private static let numberColor = UIColor.systemOrange
-    private static let boolColor = UIColor.systemPurple
-    private static let commentColor = UIColor.systemGray
-    private static let anchorColor = UIColor.systemTeal
-    private static let listDashColor = UIColor.systemRed
-    private static let defaultColor = UIColor.label
+    private static let keyColor = NSColor.systemBlue
+    private static let stringColor = NSColor.systemGreen
+    private static let numberColor = NSColor.systemOrange
+    private static let boolColor = NSColor.systemPurple
+    private static let commentColor = NSColor.systemGray
+    private static let anchorColor = NSColor.systemTeal
+    private static let listDashColor = NSColor.systemRed
+    private static let defaultColor = NSColor.labelColor
 
     static func highlight(_ text: String) -> NSAttributedString {
         let attributed = NSMutableAttributedString(
             string: text,
             attributes: [
-                .font: UIFont.monospacedSystemFont(ofSize: 13, weight: .regular),
+                .font: NSFont.monospacedSystemFont(ofSize: 13, weight: .regular),
                 .foregroundColor: defaultColor,
             ]
         )
@@ -254,7 +347,7 @@ enum YAMLHighlighter {
         return nil
     }
 
-    private static func applyRegex(_ pattern: String, color: UIColor, in attributed: NSMutableAttributedString, range: NSRange, text: NSString) {
+    private static func applyRegex(_ pattern: String, color: NSColor, in attributed: NSMutableAttributedString, range: NSRange, text: NSString) {
         guard let regex = try? NSRegularExpression(pattern: pattern, options: []) else { return }
         // Clamp range to text length
         let safeRange = NSRange(location: range.location, length: min(range.length, text.length - range.location))
@@ -262,86 +355,5 @@ enum YAMLHighlighter {
             guard let matchRange = match?.range else { return }
             attributed.addAttribute(.foregroundColor, value: color, range: matchRange)
         }
-    }
-}
-
-// MARK: - YAML Validator
-
-struct YAMLError: Identifiable {
-    let id = UUID()
-    let line: Int
-    let message: String
-}
-
-enum YAMLValidator {
-    static func validate(_ text: String) -> [YAMLError] {
-        var errors: [YAMLError] = []
-        let lines = text.components(separatedBy: "\n")
-        var indentStack: [Int] = [0]
-
-        for (index, line) in lines.enumerated() {
-            let lineNum = index + 1
-
-            // Skip empty lines and comments
-            let trimmed = line.trimmingCharacters(in: .whitespaces)
-            if trimmed.isEmpty || trimmed.hasPrefix("#") { continue }
-
-            // Check for tabs (YAML only allows spaces)
-            if line.contains("\t") {
-                errors.append(YAMLError(line: lineNum, message: "Tabs are not allowed in YAML, use spaces"))
-            }
-
-            // Calculate indentation
-            let indent = line.prefix(while: { $0 == " " }).count
-
-            // Check odd indentation (common error, though technically valid)
-            // Skip this check as some configs use 2-space indent
-
-            // Check for trailing whitespace on non-empty lines
-            if line != trimmed && line.last == " " && !trimmed.isEmpty {
-                // This is a soft warning, skip for now
-            }
-
-            // Check for duplicate colons in key (likely malformed)
-            if let colonIdx = trimmed.firstIndex(of: ":"), !trimmed.hasPrefix("-") {
-                let afterColon = trimmed[trimmed.index(after: colonIdx)...]
-                if afterColon.first != nil && afterColon.first != " " && afterColon.first != "\n"
-                    && !trimmed.hasPrefix("http") && !trimmed.hasPrefix("https")
-                    && !trimmed.hasPrefix("\"") && !trimmed.hasPrefix("'")
-                    && !trimmed.contains("://") {
-                    errors.append(YAMLError(line: lineNum, message: "Missing space after colon"))
-                }
-            }
-
-            // Check for invalid indent jump
-            if indent > (indentStack.last ?? 0) + 8 {
-                errors.append(YAMLError(line: lineNum, message: "Unexpected indentation increase"))
-            }
-
-            // Update indent stack
-            if indent > (indentStack.last ?? 0) {
-                indentStack.append(indent)
-            } else {
-                while let last = indentStack.last, last > indent {
-                    indentStack.removeLast()
-                }
-            }
-
-            // Check for unclosed quotes
-            let doubleQuotes = trimmed.filter { $0 == "\"" }.count
-            let singleQuotes = trimmed.filter { $0 == "'" }.count
-            // Simple check: odd number of unescaped quotes
-            if doubleQuotes % 2 != 0 && !trimmed.contains("\\\"") {
-                errors.append(YAMLError(line: lineNum, message: "Unclosed double quote"))
-            }
-            if singleQuotes % 2 != 0 {
-                errors.append(YAMLError(line: lineNum, message: "Unclosed single quote"))
-            }
-
-            // Check for mapping with missing value (key: followed by nothing, then another key at same level)
-            // This is complex to detect reliably, skip for basic validator
-        }
-
-        return errors
     }
 }

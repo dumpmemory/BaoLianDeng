@@ -22,14 +22,16 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
     private var gcTimer: DispatchSourceTimer?
     private var diagnosticTimer: DispatchSourceTimer?
 
-    // Write log entries to shared container so the main app can read them
+    private lazy var logURL: URL = {
+        let dir = ConfigManager.shared.configDirectoryURL?.deletingLastPathComponent()
+            ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir.appendingPathComponent("tunnel.log")
+    }()
+
     private func log(_ message: String) {
         let line = "[\(Date())] \(message)\n"
         AppLogger.tunnel.info("\(message, privacy: .public)")
-        guard let dir = FileManager.default.containerURL(
-            forSecurityApplicationGroupIdentifier: AppConstants.appGroupIdentifier
-        ) else { return }
-        let logURL = dir.appendingPathComponent("tunnel.log")
         if let data = line.data(using: .utf8) {
             if FileManager.default.fileExists(atPath: logURL.path),
                let handle = try? FileHandle(forWritingTo: logURL) {
@@ -44,54 +46,22 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
 
     override func startTunnel(options: [String: NSObject]?, completionHandler: @escaping (Error?) -> Void) {
         // Clear old log on each tunnel start
-        if let dir = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: AppConstants.appGroupIdentifier) {
-            let logURL = dir.appendingPathComponent("tunnel.log")
-            try? FileManager.default.removeItem(at: logURL)
-
-            // Redirect Mihomo's internal Go logs to the same tunnel.log
-            var logErr: NSError?
-            BridgeSetLogFile(logURL.path, &logErr)
-            if let logErr = logErr {
-                AppLogger.tunnel.warning("Could not set Go log file: \(logErr, privacy: .public)")
-            }
-        }
+        try? FileManager.default.removeItem(at: logURL)
         log("startTunnel called")
 
-        guard let configDir = configDirectory else {
-            log("ERROR: config directory unavailable")
-            completionHandler(PacketTunnelError.configDirectoryUnavailable)
-            return
-        }
+        let configDir = setupConfigFromProvider()
         log("configDir: \(configDir)")
 
-        // Point Mihomo to the shared config directory
-        BridgeSetHomeDir(configDir)
-
-        // Ensure config exists
         let configPath = configDir + "/config.yaml"
         guard FileManager.default.fileExists(atPath: configPath) else {
-            log("ERROR: config.yaml not found at \(configPath)")
+            log("ERROR: config.yaml still not found at \(configPath)")
             completionHandler(PacketTunnelError.configNotFound)
             return
         }
 
-        // Re-apply selected subscription config (in case iOS started the tunnel
-        // without the main app, or config.yaml was reset to defaults)
-        let applied = ConfigManager.shared.applySelectedSubscription()
-        log("Subscription applied: \(applied)")
-
         // Sanitize subscription configs (fix stack, DNS, geo-auto-update)
         ConfigManager.shared.sanitizeConfig()
         log("Config sanitized")
-
-        ConfigManager.shared.applyLogLevel()
-        log("Log level applied to config")
-
-        ConfigManager.shared.applyMode()
-        log("Mode applied")
-
-        ConfigManager.shared.applySelectedNode()
-        log("Selected node applied to default proxy group")
 
         // Log config summary for debugging
         if let cfg = try? String(contentsOfFile: configPath, encoding: .utf8) {
@@ -107,21 +77,16 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
                 completionHandler(error)
                 return
             }
+            self?.log("setTunnelNetworkSettings succeeded")
 
-            guard let fd = self?.tunnelFileDescriptor else {
-                self?.log("ERROR: could not find utun file descriptor")
-                completionHandler(PacketTunnelError.tunnelFDNotFound)
-                return
-            }
-            self?.log("Found TUN fd: \(fd)")
+            // Enable Rust-side logging to the same directory as tunnel.log
+            let rustLogPath = (configDir as NSString).deletingLastPathComponent + "/rust_bridge.log"
+            self?.log("Setting Rust log file: \(rustLogPath)")
+            BridgeSetLogFile(rustLogPath)
 
-            var fdErr: NSError?
-            BridgeSetTUNFd(Int32(fd), &fdErr)
-            if let fdErr = fdErr {
-                self?.log("ERROR: Failed to set TUN fd: \(fdErr)")
-                completionHandler(fdErr)
-                return
-            }
+            // Step 1: Point mihomo at the config directory and start the engine
+            self?.log("Setting home dir: \(configDir)")
+            BridgeSetHomeDir(configDir)
 
             self?.log("Starting Mihomo proxy engine with external controller")
             var startError: NSError?
@@ -131,16 +96,31 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
                 completionHandler(startError)
                 return
             }
+            self?.log("Proxy engine started")
 
-            self?.log("Proxy started successfully")
+            // Step 2: Find the TUN fd
+            guard let fd = self?.tunnelFileDescriptor else {
+                self?.log("ERROR: could not find utun file descriptor")
+                completionHandler(PacketTunnelError.tunnelFDNotFound)
+                return
+            }
+            self?.log("Found TUN fd: \(fd)")
+
+            // Step 3: Start tun2socks (lwIP reads fd, forwards via SOCKS5 to engine)
+            self?.log("Starting tun2socks: fd=\(fd), socks=7890, dns=1053")
+            var tun2socksError: NSError?
+            BridgeStartTun2Socks(Int32(fd), 7890, 1053, &tun2socksError)
+            if let tun2socksError = tun2socksError {
+                self?.log("ERROR: BridgeStartTun2Socks failed: \(tun2socksError)")
+                completionHandler(tun2socksError)
+                return
+            }
+            self?.log("tun2socks started successfully")
+
             self?.proxyStarted = true
-            // Apply user's log level AFTER engine start, because
-            // hub.ApplyConfig resets log level from config.yaml's log-level field.
             self?.setupLogging()
             self?.startMemoryManagement()
             self?.startDiagnosticLogging()
-            // Select the saved proxy node via REST API
-            self?.selectSavedProxyNode()
             completionHandler(nil)
 
             // Run connectivity diagnostics in background
@@ -195,14 +175,51 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
             let version = BridgeVersion()
             completionHandler?(responseData(["version": version ?? "unknown"]))
 
-        case "select_node":
-            let nodeName = message["node"] as? String
-            selectSavedProxyNode(nodeName: nodeName)
-            completionHandler?(nil)
+        case "get_log":
+            var logContent = (try? String(contentsOf: logURL, encoding: .utf8)) ?? ""
+            // Append Rust bridge log
+            let rustLogURL = logURL.deletingLastPathComponent().appendingPathComponent("rust_bridge.log")
+            if let rustLog = try? String(contentsOf: rustLogURL, encoding: .utf8) {
+                logContent += "\n--- Rust Bridge Log ---\n" + rustLog
+            }
+            completionHandler?(logContent.data(using: .utf8))
 
         default:
             completionHandler?(nil)
         }
+    }
+
+    // MARK: - Config from Provider
+
+    /// Decompress the full YAML config from providerConfiguration and write to disk.
+    /// Falls back to the default config if no compressed data is available.
+    private func setupConfigFromProvider() -> String {
+        let proto = protocolConfiguration as? NETunnelProviderProtocol
+        let providerConfig = proto?.providerConfiguration
+
+        guard let configDirURL = ConfigManager.shared.configDirectoryURL else {
+            log("ERROR: could not resolve config directory")
+            return ""
+        }
+        let configDir = configDirURL.path
+        try? FileManager.default.createDirectory(atPath: configDir, withIntermediateDirectories: true)
+
+        let config: String
+        if let compressed = providerConfig?["configData"] as? Data,
+           let decompressed = try? (compressed as NSData).decompressed(using: .zlib) as Data,
+           let yaml = String(data: decompressed, encoding: .utf8) {
+            config = yaml
+            log("Config from provider: \(compressed.count) -> \(decompressed.count) bytes")
+        } else {
+            config = ConfigManager.shared.defaultConfig()
+            log("No compressed config in provider, using default")
+        }
+
+        let configPath = configDir + "/config.yaml"
+        try? config.write(toFile: configPath, atomically: true, encoding: .utf8)
+        log("Config written to \(configPath) (\(config.count) chars)")
+
+        return configDir
     }
 
     // MARK: - TUN Configuration
@@ -216,6 +233,11 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
             subnetMasks: [AppConstants.tunSubnetMask]
         )
         ipv4.includedRoutes = [NEIPv4Route.default()]
+        // Exclude localhost so the extension's own outbound connections
+        // (SOCKS5 to 127.0.0.1:7890, DNS to 127.0.0.1:1053) don't loop back through TUN
+        ipv4.excludedRoutes = [
+            NEIPv4Route(destinationAddress: "127.0.0.0", subnetMask: "255.0.0.0"),
+        ]
         settings.ipv4Settings = ipv4
 
         // IPv6 - route all IPv6 traffic through the tunnel
@@ -224,6 +246,9 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
             networkPrefixLengths: [NSNumber(value: AppConstants.tunIPv6PrefixLength)]
         )
         ipv6.includedRoutes = [NEIPv6Route.default()]
+        ipv6.excludedRoutes = [
+            NEIPv6Route(destinationAddress: "::1", networkPrefixLength: 128),
+        ]
         settings.ipv6Settings = ipv6
 
         // DNS - point to Mihomo's fake-ip DNS server
@@ -259,12 +284,6 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
 
     // MARK: - Helpers
 
-    private var configDirectory: String? {
-        FileManager.default.containerURL(
-            forSecurityApplicationGroupIdentifier: AppConstants.appGroupIdentifier
-        )?.appendingPathComponent("mihomo").path
-    }
-
     /// Find the utun file descriptor created by NEPacketTunnelProvider.
     /// This fd is passed to the Go core so Mihomo can read/write VPN packets directly.
     private var tunnelFileDescriptor: Int32? {
@@ -279,45 +298,8 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
         return nil
     }
 
-    /// Select a proxy node via Mihomo's REST API.
-    /// If `nodeName` is provided, use it directly; otherwise fall back to UserDefaults.
-    private func selectSavedProxyNode(nodeName: String? = nil) {
-        let resolvedName: String
-        if let name = nodeName, !name.isEmpty {
-            resolvedName = name
-        } else if let saved = UserDefaults(suiteName: AppConstants.appGroupIdentifier)?
-                    .string(forKey: "selectedNode"), !saved.isEmpty {
-            resolvedName = saved
-        } else {
-            log("No saved proxy node to select")
-            return
-        }
-        let groupNames = ConfigManager.shared.selectProxyGroupNames()
-        if groupNames.isEmpty {
-            log("No select-type proxy groups found in config")
-            return
-        }
-        log("Selecting proxy node: \(resolvedName) in groups: \(groupNames)")
-        let body = try? JSONSerialization.data(withJSONObject: ["name": resolvedName])
-        for groupName in groupNames {
-            guard let encodedGroup = groupName.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed),
-                  let url = URL(string: "http://\(AppConstants.externalControllerAddr)/proxies/\(encodedGroup)") else { continue }
-            var request = URLRequest(url: url)
-            request.httpMethod = "PUT"
-            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-            request.httpBody = body
-            URLSession.shared.dataTask(with: request) { [weak self] _, response, error in
-                if let error = error {
-                    self?.log("Failed to select node in \(groupName): \(error.localizedDescription)")
-                } else if let httpResponse = response as? HTTPURLResponse {
-                    self?.log("Select node in \(groupName): \(httpResponse.statusCode)")
-                }
-            }.resume()
-        }
-    }
-
     private func setupLogging() {
-        let level = UserDefaults(suiteName: AppConstants.appGroupIdentifier)?
+        let level = AppConstants.sharedDefaults
             .string(forKey: "logLevel") ?? "info"
         BridgeUpdateLogLevel(level)
     }

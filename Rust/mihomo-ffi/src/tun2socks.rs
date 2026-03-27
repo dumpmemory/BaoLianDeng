@@ -10,9 +10,10 @@ use std::collections::HashMap;
 use std::io;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr, SocketAddrV4};
 use std::os::raw::c_void;
-use std::os::unix::io::RawFd;
+use std::os::unix::io::{AsRawFd, RawFd};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Instant;
+use tokio::io::unix::AsyncFd;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 use tokio::sync::mpsc;
@@ -23,6 +24,18 @@ use smoltcp::phy::{self, Device, DeviceCapabilities, Medium};
 use smoltcp::socket::tcp as smol_tcp;
 use smoltcp::time::Instant as SmolInstant;
 use smoltcp::wire::{HardwareAddress, IpAddress, IpCidr, IpListenEndpoint};
+
+// ---------------------------------------------------------------------------
+// AsyncFd wrapper for raw TUN file descriptor
+// ---------------------------------------------------------------------------
+
+struct TunFd(RawFd);
+
+impl AsRawFd for TunFd {
+    fn as_raw_fd(&self) -> RawFd {
+        self.0
+    }
+}
 
 // ---------------------------------------------------------------------------
 // Public API
@@ -54,15 +67,14 @@ pub fn start(fd: i32, socks_port: u16, _dns_port: u16) -> Result<(), String> {
         tokio_handler(tun_rx, socks_tx, socks_addr2).await;
     });
 
-    // Spawn the packet processing thread (reads/writes fd, drives smoltcp)
-    std::thread::Builder::new()
-        .name("smoltcp-tun2socks".into())
-        .spawn(move || {
-            packet_thread(fd, tun_tx, socks_rx);
-            TUN2SOCKS_RUNNING.store(false, Ordering::SeqCst);
-            info!("tun2socks packet thread exited");
-        })
-        .map_err(|e| format!("spawn packet thread: {}", e))?;
+    // Spawn the packet processing loop on tokio (uses AsyncFd for TUN fd)
+    rt.spawn(async move {
+        if let Err(e) = packet_loop(fd, tun_tx, socks_rx).await {
+            logging::bridge_log(&format!("packet_loop error: {}", e));
+        }
+        TUN2SOCKS_RUNNING.store(false, Ordering::SeqCst);
+        info!("tun2socks packet loop exited");
+    });
 
     Ok(())
 }
@@ -221,12 +233,12 @@ struct ConnInfo {
 // Packet thread (replaces lwip_thread)
 // ---------------------------------------------------------------------------
 
-fn packet_thread(
+async fn packet_loop(
     fd: RawFd,
     tun_tx: mpsc::UnboundedSender<TunEvent>,
     mut socks_rx: mpsc::UnboundedReceiver<SocksEvent>,
-) {
-    logging::bridge_log("packet_thread: starting (smoltcp)");
+) -> io::Result<()> {
+    logging::bridge_log("packet_loop: starting (smoltcp + AsyncFd)");
 
     // Create smoltcp device and interface
     let mut device = TunDevice::new(1500);
@@ -261,15 +273,20 @@ fn packet_thread(
         });
     }
 
-    logging::bridge_log(&format!("packet_thread: {} sockets allocated", MAX_SOCKETS));
+    logging::bridge_log(&format!("packet_loop: {} sockets allocated", MAX_SOCKETS));
 
-    // Set fd to non-blocking
-    unsafe {
-        let flags = libc::fcntl(fd, libc::F_GETFL);
-        libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK);
-    }
+    // Set fd to non-blocking and wrap in AsyncFd
+    use nix::fcntl::{fcntl, FcntlArg, OFlag};
+    let flags = fcntl(fd, FcntlArg::F_GETFL)
+        .map_err(|_| io::Error::last_os_error())?;
+    let mut new_flags = OFlag::from_bits_truncate(flags);
+    new_flags.insert(OFlag::O_NONBLOCK);
+    fcntl(fd, FcntlArg::F_SETFL(new_flags))
+        .map_err(|_| io::Error::last_os_error())?;
 
-    logging::bridge_log("packet_thread: entering main loop");
+    let async_fd = AsyncFd::new(TunFd(fd))?;
+
+    logging::bridge_log("packet_loop: entering main loop");
 
     let mut read_buf = vec![0u8; 65535];
     let mut pkt_total: u64 = 0;
@@ -286,79 +303,109 @@ fn packet_thread(
     let mut last_stats = Instant::now();
     let start_time = Instant::now();
 
-    // Main loop
-    while TUN2SOCKS_RUNNING.load(Ordering::SeqCst) {
-        let now_millis = start_time.elapsed().as_millis() as i64;
-        let smol_now = SmolInstant::from_millis(now_millis);
+    // Main loop — wait for fd readable or SOCKS events via tokio::select!
+    loop {
+        if !TUN2SOCKS_RUNNING.load(Ordering::SeqCst) {
+            break;
+        }
 
-        // 1. Read packets from fd
-        loop {
-            let n = unsafe {
-                libc::read(fd, read_buf.as_mut_ptr() as *mut c_void, read_buf.len())
-            };
-            if n < 0 {
-                let errno = unsafe { *libc::__error() };
-                if errno != libc::EAGAIN && errno != libc::EWOULDBLOCK {
-                    read_errors += 1;
-                    if read_errors <= 5 {
-                        logging::bridge_log(&format!(
-                            "packet_thread: read error: errno={}", errno
-                        ));
+        // Wait for either: fd has data to read, or SOCKS event arrives
+        let mut got_socks_event: Option<SocksEvent> = None;
+        tokio::select! {
+            readable = async_fd.readable() => {
+                let mut guard = readable?;
+                // Read all available packets
+                loop {
+                    match guard.try_io(|inner| {
+                        let n = unsafe {
+                            libc::read(
+                                inner.get_ref().as_raw_fd(),
+                                read_buf.as_mut_ptr() as *mut c_void,
+                                read_buf.len(),
+                            )
+                        };
+                        if n < 0 {
+                            Err(io::Error::last_os_error())
+                        } else {
+                            Ok(n as usize)
+                        }
+                    }) {
+                        Ok(Ok(0)) => break,
+                        Ok(Ok(n)) => {
+                            pkt_total += 1;
+                            // Strip 4-byte utun header
+                            if n <= 4 {
+                                continue;
+                            }
+                            let ip_data = &read_buf[4..n];
+
+                            // Log first few packets
+                            if pkt_total <= 5 {
+                                let version = if !ip_data.is_empty() { ip_data[0] >> 4 } else { 0 };
+                                let proto = if ip_data.len() > 9 { ip_data[9] } else { 0 };
+                                logging::bridge_log(&format!(
+                                    "packet_loop: pkt #{}: {}B, ip_ver={}, proto={}",
+                                    pkt_total, n, version, proto
+                                ));
+                            }
+
+                            // Intercept UDP before smoltcp
+                            if let Some((src_ip, src_port, dst_ip, dst_port, payload)) =
+                                parse_udp_packet(ip_data)
+                            {
+                                pkt_udp += 1;
+                                if pkt_udp <= 3 {
+                                    let dst = Ipv4Addr::from(dst_ip.to_ne_bytes());
+                                    logging::bridge_log(&format!(
+                                        "packet_loop: UDP -> {}:{} ({}B)",
+                                        dst, dst_port, payload.len()
+                                    ));
+                                }
+                                let _ = tun_tx.send(TunEvent::UdpPacket {
+                                    src_ip,
+                                    src_port,
+                                    dst_ip,
+                                    dst_port,
+                                    data: payload.to_vec(),
+                                });
+                            } else {
+                                // Check if TCP for stats
+                                if ip_data.len() > 9 && ip_data[9] == 6 {
+                                    pkt_tcp += 1;
+                                } else {
+                                    pkt_other += 1;
+                                }
+                                // Queue for smoltcp
+                                device.rx_queue.push_back(ip_data.to_vec());
+                            }
+                        }
+                        Ok(Err(e)) => {
+                            read_errors += 1;
+                            if read_errors <= 5 {
+                                logging::bridge_log(&format!(
+                                    "packet_loop: read error: {}", e
+                                ));
+                            }
+                            break;
+                        }
+                        Err(_would_block) => {
+                            // No more data available right now
+                            break;
+                        }
                     }
                 }
-                break;
+                guard.clear_ready();
             }
-            if n == 0 {
-                break;
-            }
-            let n = n as usize;
-            pkt_total += 1;
-            // Strip 4-byte utun header
-            if n <= 4 {
-                continue;
-            }
-            let ip_data = &read_buf[4..n];
-
-            // Log first few packets
-            if pkt_total <= 5 {
-                let version = if !ip_data.is_empty() { ip_data[0] >> 4 } else { 0 };
-                let proto = if ip_data.len() > 9 { ip_data[9] } else { 0 };
-                logging::bridge_log(&format!(
-                    "packet_thread: pkt #{}: {}B, ip_ver={}, proto={}",
-                    pkt_total, n, version, proto
-                ));
-            }
-
-            // Intercept UDP before smoltcp
-            if let Some((src_ip, src_port, dst_ip, dst_port, payload)) =
-                parse_udp_packet(ip_data)
-            {
-                pkt_udp += 1;
-                if pkt_udp <= 3 {
-                    let dst = Ipv4Addr::from(dst_ip.to_ne_bytes());
-                    logging::bridge_log(&format!(
-                        "packet_thread: UDP -> {}:{} ({}B)",
-                        dst, dst_port, payload.len()
-                    ));
+            event = socks_rx.recv() => {
+                match event {
+                    Some(e) => { got_socks_event = Some(e); }
+                    None => break, // channel closed
                 }
-                let _ = tun_tx.send(TunEvent::UdpPacket {
-                    src_ip,
-                    src_port,
-                    dst_ip,
-                    dst_port,
-                    data: payload.to_vec(),
-                });
-            } else {
-                // Check if TCP for stats
-                if ip_data.len() > 9 && ip_data[9] == 6 {
-                    pkt_tcp += 1;
-                } else {
-                    pkt_other += 1;
-                }
-                // Queue for smoltcp
-                device.rx_queue.push_back(ip_data.to_vec());
             }
         }
+
+        let now_millis = start_time.elapsed().as_millis() as i64;
+        let smol_now = SmolInstant::from_millis(now_millis);
 
         // 2. Pre-inspect SYN packets and set up listening sockets
         let mut syns_found = 0u64;
@@ -507,74 +554,18 @@ fn packet_thread(
         }
 
         // 5. Process events from tokio (SOCKS5 responses)
+        // First handle any event captured by select!, then drain remaining
+        if let Some(event) = got_socks_event {
+            process_socks_event(
+                event, fd, &conns, &mut sockets,
+                &mut socks_data_recv, &mut socks_data_sent, &mut socks_data_dropped,
+            );
+        }
         while let Ok(event) = socks_rx.try_recv() {
-            match event {
-                SocksEvent::TcpData { conn_id, data } => {
-                    socks_data_recv += data.len() as u64;
-                    if let Some(ci) = conns.iter().find(|c| c.conn_id == conn_id && c.state == ConnState::Established) {
-                        let socket = sockets.get_mut::<smol_tcp::Socket>(ci.handle);
-                        if socket.can_send() {
-                            match socket.send_slice(&data) {
-                                Ok(n) => {
-                                    socks_data_sent += n as u64;
-                                    if n < data.len() {
-                                        socks_data_dropped += (data.len() - n) as u64;
-                                    }
-                                }
-                                Err(e) => {
-                                    socks_data_dropped += data.len() as u64;
-                                    logging::bridge_log(&format!(
-                                        "send_slice ERR: conn_id={} err={:?} state={:?}",
-                                        conn_id, e, socket.state()
-                                    ));
-                                }
-                            }
-                        } else {
-                            socks_data_dropped += data.len() as u64;
-                            logging::bridge_log(&format!(
-                                "can_send=false: conn_id={} state={:?} send_queue={}",
-                                conn_id, socket.state(), socket.send_queue()
-                            ));
-                        }
-                    } else {
-                        // Connection not found or not Established
-                        let found = conns.iter().find(|c| c.conn_id == conn_id);
-                        if let Some(ci) = found {
-                            logging::bridge_log(&format!(
-                                "SocksData MISS: conn_id={} len={} our_state={:?} sock_state={:?}",
-                                conn_id, data.len(), ci.state,
-                                sockets.get::<smol_tcp::Socket>(ci.handle).state()
-                            ));
-                        } else {
-                            logging::bridge_log(&format!(
-                                "SocksData ORPHAN: conn_id={} len={} (no conn)",
-                                conn_id, data.len()
-                            ));
-                        }
-                    }
-                }
-                SocksEvent::TcpClose { conn_id } => {
-                    if let Some(ci) = conns.iter_mut().find(|c| c.conn_id == conn_id) {
-                        let socket = sockets.get_mut::<smol_tcp::Socket>(ci.handle);
-                        socket.close();
-                    }
-                }
-                SocksEvent::UdpReply {
-                    dst_ip,
-                    dst_port,
-                    src_ip,
-                    src_port,
-                    data,
-                } => {
-                    let raw = build_udp_packet(src_ip, src_port, dst_ip, dst_port, &data);
-                    let mut pkt = Vec::with_capacity(4 + raw.len());
-                    pkt.extend_from_slice(&2u32.to_be_bytes());
-                    pkt.extend_from_slice(&raw);
-                    unsafe {
-                        libc::write(fd, pkt.as_ptr() as *const c_void, pkt.len());
-                    }
-                }
-            }
+            process_socks_event(
+                event, fd, &conns, &mut sockets,
+                &mut socks_data_recv, &mut socks_data_sent, &mut socks_data_dropped,
+            );
         }
 
         // 6. Poll again to flush data written to sockets in step 5
@@ -628,14 +619,6 @@ fn packet_thread(
             }
         }
 
-        // 7. Wait for fd readable via select (wakes immediately on new packets)
-        unsafe {
-            let mut fds = libc::fd_set { fds_bits: [0; 32] };
-            libc::FD_SET(fd, &mut fds);
-            let mut timeout = libc::timeval { tv_sec: 0, tv_usec: 1000 }; // 1ms max
-            libc::select(fd + 1, &mut fds, std::ptr::null_mut(), std::ptr::null_mut(), &mut timeout);
-        }
-
         // 8. Periodic stats
         if last_stats.elapsed() >= std::time::Duration::from_secs(5) {
             logging::bridge_log(&format!(
@@ -647,7 +630,87 @@ fn packet_thread(
         }
     }
 
-    logging::bridge_log("packet_thread: exiting main loop");
+    logging::bridge_log("packet_loop: exiting main loop");
+    Ok(())
+}
+
+/// Process a single SocksEvent (extracted to avoid duplicating logic).
+fn process_socks_event(
+    event: SocksEvent,
+    fd: RawFd,
+    conns: &[ConnInfo],
+    sockets: &mut SocketSet,
+    socks_data_recv: &mut u64,
+    socks_data_sent: &mut u64,
+    socks_data_dropped: &mut u64,
+) {
+    match event {
+        SocksEvent::TcpData { conn_id, data } => {
+            *socks_data_recv += data.len() as u64;
+            if let Some(ci) = conns.iter().find(|c| c.conn_id == conn_id && c.state == ConnState::Established) {
+                let socket = sockets.get_mut::<smol_tcp::Socket>(ci.handle);
+                if socket.can_send() {
+                    match socket.send_slice(&data) {
+                        Ok(n) => {
+                            *socks_data_sent += n as u64;
+                            if n < data.len() {
+                                *socks_data_dropped += (data.len() - n) as u64;
+                            }
+                        }
+                        Err(e) => {
+                            *socks_data_dropped += data.len() as u64;
+                            logging::bridge_log(&format!(
+                                "send_slice ERR: conn_id={} err={:?} state={:?}",
+                                conn_id, e, socket.state()
+                            ));
+                        }
+                    }
+                } else {
+                    *socks_data_dropped += data.len() as u64;
+                    logging::bridge_log(&format!(
+                        "can_send=false: conn_id={} state={:?} send_queue={}",
+                        conn_id, socket.state(), socket.send_queue()
+                    ));
+                }
+            } else {
+                // Connection not found or not Established
+                let found = conns.iter().find(|c| c.conn_id == conn_id);
+                if let Some(ci) = found {
+                    logging::bridge_log(&format!(
+                        "SocksData MISS: conn_id={} len={} our_state={:?} sock_state={:?}",
+                        conn_id, data.len(), ci.state,
+                        sockets.get::<smol_tcp::Socket>(ci.handle).state()
+                    ));
+                } else {
+                    logging::bridge_log(&format!(
+                        "SocksData ORPHAN: conn_id={} len={} (no conn)",
+                        conn_id, data.len()
+                    ));
+                }
+            }
+        }
+        SocksEvent::TcpClose { conn_id } => {
+            if let Some(ci) = conns.iter().find(|c| c.conn_id == conn_id) {
+                let socket = sockets.get_mut::<smol_tcp::Socket>(ci.handle);
+                socket.close();
+            }
+        }
+        SocksEvent::UdpReply {
+            dst_ip,
+            dst_port,
+            src_ip,
+            src_port,
+            data,
+        } => {
+            let raw = build_udp_packet(src_ip, src_port, dst_ip, dst_port, &data);
+            let mut pkt = Vec::with_capacity(4 + raw.len());
+            pkt.extend_from_slice(&2u32.to_be_bytes());
+            pkt.extend_from_slice(&raw);
+            unsafe {
+                libc::write(fd, pkt.as_ptr() as *const c_void, pkt.len());
+            }
+        }
+    }
 }
 
 /// Parse a TCP SYN packet, returning (dst_ip_ne, dst_port) if it's a SYN.

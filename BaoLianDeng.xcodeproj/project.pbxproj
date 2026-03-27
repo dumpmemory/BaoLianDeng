@@ -7,114 +7,73 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		A10001 /* BaoLianDengApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10001; };
-		A10002 /* HomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10002; };
-		A10050 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10050; };
-		A10051 /* YAMLEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10051; };
-		A10003 /* TrafficView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10003; };
-		A10004 /* ConfigEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10004; };
-		A10006 /* AboutView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10006; };
-		A10035 /* TunnelLogView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10035; };
-		A10007 /* Constants.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10007; };
-		A10008 /* ConfigManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10008; };
-		A10009 /* VPNManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10009; };
-		A10010 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = B10010; };
-		A10020 /* PacketTunnelProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10020; };
-		A10021 /* Constants.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10007; };
-		A10022 /* ConfigManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10008; };
-		A10030 /* MihomoCore.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = B10030; };
-		A10031 /* MihomoCore.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = B10030; };
-		A10032 /* MihomoCore.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = B10030; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
-		A10040 /* PacketTunnel.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = C20001; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
-		A10041 /* NetworkExtension.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = B10040; };
-		A10042 /* NetworkExtension.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = B10040; };
-		A10060 /* TrafficStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10060; };
-		A10080 /* ScreenshotTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10080; };
-		A10090 /* AppLogger.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10090; };
-		A10091 /* AppLogger.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10090; };
-		AA0001 /* ConfigMergeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0002; };
-		YMS0005 /* Yams in Frameworks */ = {isa = PBXBuildFile; productRef = YMS0002 /* Yams */; };
-		YMS0006 /* Yams in Frameworks */ = {isa = PBXBuildFile; productRef = YMS0003 /* Yams */; };
-		YMS0007 /* Yams in Frameworks */ = {isa = PBXBuildFile; productRef = YMS0004 /* Yams */; };
+		01BF7BA8C0F4005A45B22C6E /* NetworkExtension.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = B10040 /* NetworkExtension.framework */; };
+		1192B4E07CB73CE52B73397A /* NetworkExtension.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = B10040 /* NetworkExtension.framework */; };
+		1523F68758DA2845A73E68DE /* MihomoCore.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = B10030 /* MihomoCore.xcframework */; };
+		1C46310C4BA03116BAE1CF24 /* ConfigManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10008 /* ConfigManager.swift */; };
+		45FA5D0C3EA6EE814F43E891 /* HomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10002 /* HomeView.swift */; };
+		489D78A7BFE5597B42E4C447 /* TrafficView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10003 /* TrafficView.swift */; };
+		599CCDA2D5B238AF73EDF62D /* Yams in Frameworks */ = {isa = PBXBuildFile; productRef = 26E740A797906E5C84A95212 /* Yams */; };
+		5F1DE7E22A0EE243182E400A /* AboutView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10006 /* AboutView.swift */; };
+		61BC365FA82815F443D0E346 /* YAMLEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10051 /* YAMLEditor.swift */; };
+		7A21C63533E42559B2CDF4E6 /* ConfigEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10004 /* ConfigEditorView.swift */; };
+		7D0DED107502CFFD6FA1D952 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10050 /* SettingsView.swift */; };
+		7E01617C460A452BA5EDB108 /* Yams in Frameworks */ = {isa = PBXBuildFile; productRef = BDB2BE65B199185132229163 /* Yams */; };
+		8263DE84A3B841EF63A2FF89 /* ConfigManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10008 /* ConfigManager.swift */; };
+		8D9BF44D7D340ADB5C09AEF9 /* VPNManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10009 /* VPNManager.swift */; };
+		9161E23D345558ED5649452F /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = B10010 /* Assets.xcassets */; };
+		9C1CFB15DEC224B8210EA2E9 /* Constants.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10007 /* Constants.swift */; };
+		9EAAFF911784E9AE012953A3 /* PacketTunnelProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10020 /* PacketTunnelProvider.swift */; };
+		A11E11AF2CAB6611B7442CD4 /* Cocoa.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 4E02415D2E45FB235C0EF142 /* Cocoa.framework */; };
+		A9840B29BC5EC55F29F0BA38 /* TrafficStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10060 /* TrafficStore.swift */; };
+		AC0B915E8C1239813ABF4AB7 /* TunnelLogView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10035 /* TunnelLogView.swift */; };
+		ADFBB07EC9AE7B14EE8CF08D /* VPNManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10009 /* VPNManager.swift */; };
+		C3DAB7AB1483CF34E41BAAFB /* AppLogger.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10090 /* AppLogger.swift */; };
+		C715B3A41E6034141A9329BE /* MihomoCore.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = B10030 /* MihomoCore.xcframework */; };
+		CEE9200E5015BA697A46FD4A /* PacketTunnel.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = 259DB0A8D1BC3A31D635256A /* PacketTunnel.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		D28CFAAD4562ECF087671BE7 /* Constants.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10007 /* Constants.swift */; };
+		DFFA836A5DFCC6D3BFF95EB6 /* BaoLianDengApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10001 /* BaoLianDengApp.swift */; };
+		EBAC80D31A3CCD3F3C083FDA /* AppLogger.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10090 /* AppLogger.swift */; };
+		F6951B7026A9ABC83EB7A583 /* Cocoa.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 4E02415D2E45FB235C0EF142 /* Cocoa.framework */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
-		D10001 /* PBXContainerItemProxy */ = {
+		1536C2A90777E05354ED602F /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
-			containerPortal = E10001;
+			containerPortal = E10001 /* Project object */;
 			proxyType = 1;
-			remoteGlobalIDString = C10002;
+			remoteGlobalIDString = 037A5AF56A256698DCED8763;
 			remoteInfo = PacketTunnel;
-		};
-		D10003 /* PBXContainerItemProxy */ = {
-			isa = PBXContainerItemProxy;
-			containerPortal = E10001;
-			proxyType = 1;
-			remoteGlobalIDString = C10001T;
-			remoteInfo = BaoLianDeng;
-		};
-		AA0012 /* PBXContainerItemProxy */ = {
-			isa = PBXContainerItemProxy;
-			containerPortal = E10001;
-			proxyType = 1;
-			remoteGlobalIDString = C10001T;
-			remoteInfo = BaoLianDeng;
 		};
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXCopyFilesBuildPhase section */
-		F10001 /* Embed Foundation Extensions */ = {
+		9CEE85C0AA6DABF4506C9D63 /* Embed App Extensions */ = {
 			isa = PBXCopyFilesBuildPhase;
 			buildActionMask = 2147483647;
 			dstPath = "";
 			dstSubfolderSpec = 13;
 			files = (
-				A10040,
+				CEE9200E5015BA697A46FD4A /* PacketTunnel.appex in Embed App Extensions */,
 			);
-			name = "Embed Foundation Extensions";
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-		F10002 /* Embed Frameworks */ = {
-			isa = PBXCopyFilesBuildPhase;
-			buildActionMask = 2147483647;
-			dstPath = "";
-			dstSubfolderSpec = 10;
-			files = (
-				A10032,
-			);
-			name = "Embed Frameworks";
+			name = "Embed App Extensions";
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXCopyFilesBuildPhase section */
 
-/* Begin PBXShellScriptBuildPhase section */
-		F10003 /* Generate MihomoCore dSYM */ = {
-			isa = PBXShellScriptBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			inputPaths = (
-				"$(BUILT_PRODUCTS_DIR)/$(FRAMEWORKS_FOLDER_PATH)/MihomoCore.framework/MihomoCore",
-			);
-			name = "Generate MihomoCore dSYM";
-			outputPaths = (
-				"$(DWARF_DSYM_FOLDER_PATH)/MihomoCore.framework.dSYM",
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-			shellPath = /bin/sh;
-			shellScript = "# Generate a dSYM for MihomoCore.xcframework so Xcode can upload it.\n# gomobile does not produce dSYMs, so dsymutil creates a stub with the correct UUID.\nif [ \"${CONFIGURATION}\" = \"Release\" ]; then\n    FRAMEWORK_BINARY=\"${BUILT_PRODUCTS_DIR}/${FRAMEWORKS_FOLDER_PATH}/MihomoCore.framework/MihomoCore\"\n    DSYM_OUTPUT=\"${DWARF_DSYM_FOLDER_PATH}/MihomoCore.framework.dSYM\"\n    if [ -f \"${FRAMEWORK_BINARY}\" ] && [ ! -d \"${DSYM_OUTPUT}\" ]; then\n        dsymutil \"${FRAMEWORK_BINARY}\" -o \"${DSYM_OUTPUT}\" 2>/dev/null || true\n    fi\nfi\n";
-		};
-/* End PBXShellScriptBuildPhase section */
-
 /* Begin PBXFileReference section */
+		259DB0A8D1BC3A31D635256A /* PacketTunnel.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; name = PacketTunnel.appex; path = PacketTunnel.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		4E02415D2E45FB235C0EF142 /* Cocoa.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Cocoa.framework; path = Platforms/MacOSX.platform/Developer/SDKs/MacOSX15.0.sdk/System/Library/Frameworks/Cocoa.framework; sourceTree = DEVELOPER_DIR; };
+		720E19EEF39E6C95A95649DA /* PacketTunnelMac.entitlements */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.entitlements; path = PacketTunnelMac.entitlements; sourceTree = "<group>"; };
+		809DB4CA51000087EE0949AF /* Info.plist */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		881BF3538A657F9F7F3951E8 /* main.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = main.swift; path = PacketTunnelMac/main.swift; sourceTree = "<group>"; };
+		8A37D4B4A6176DB152B15D42 /* BaoLianDeng.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = BaoLianDeng.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		9677D8DCB6006F09D5E716D6 /* SystemExtensions.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SystemExtensions.framework; path = System/Library/Frameworks/SystemExtensions.framework; sourceTree = SDKROOT; };
 		B10001 /* BaoLianDengApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BaoLianDengApp.swift; sourceTree = "<group>"; };
 		B10002 /* HomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeView.swift; sourceTree = "<group>"; };
-		B10050 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
-		B10051 /* YAMLEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = YAMLEditor.swift; sourceTree = "<group>"; };
 		B10003 /* TrafficView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrafficView.swift; sourceTree = "<group>"; };
 		B10004 /* ConfigEditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConfigEditorView.swift; sourceTree = "<group>"; };
 		B10006 /* AboutView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AboutView.swift; sourceTree = "<group>"; };
-		B10035 /* TunnelLogView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TunnelLogView.swift; sourceTree = "<group>"; };
 		B10007 /* Constants.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Constants.swift; sourceTree = "<group>"; };
 		B10008 /* ConfigManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConfigManager.swift; sourceTree = "<group>"; };
 		B10009 /* VPNManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VPNManager.swift; sourceTree = "<group>"; };
@@ -122,84 +81,83 @@
 		B10011 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		B10012 /* BaoLianDeng.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = BaoLianDeng.entitlements; sourceTree = "<group>"; };
 		B10020 /* PacketTunnelProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PacketTunnelProvider.swift; sourceTree = "<group>"; };
-		B10021 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
-		B10022 /* PacketTunnel.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = PacketTunnel.entitlements; sourceTree = "<group>"; };
 		B10030 /* MihomoCore.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; path = MihomoCore.xcframework; sourceTree = "<group>"; };
+		B10035 /* TunnelLogView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TunnelLogView.swift; sourceTree = "<group>"; };
 		B10040 /* NetworkExtension.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = NetworkExtension.framework; path = System/Library/Frameworks/NetworkExtension.framework; sourceTree = SDKROOT; };
-		B10070 /* Local.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Local.xcconfig; sourceTree = "<group>"; };
+		B10050 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
+		B10051 /* YAMLEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = YAMLEditor.swift; sourceTree = "<group>"; };
 		B10060 /* TrafficStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrafficStore.swift; sourceTree = "<group>"; };
-		B10080 /* ScreenshotTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenshotTests.swift; sourceTree = "<group>"; };
+		B10070 /* Local.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Local.xcconfig; sourceTree = "<group>"; };
 		B10090 /* AppLogger.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppLogger.swift; sourceTree = "<group>"; };
-		AA0002 /* ConfigMergeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConfigMergeTests.swift; sourceTree = "<group>"; };
-		AA0003 /* BaoLianDengTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = BaoLianDengTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
-		C10001 /* BaoLianDeng.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = BaoLianDeng.app; sourceTree = BUILT_PRODUCTS_DIR; };
-		C20001 /* PacketTunnel.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = PacketTunnel.appex; sourceTree = BUILT_PRODUCTS_DIR; };
-		C30001 /* BaoLianDengUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = BaoLianDengUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
-		F20001 /* Frameworks */ = {
+		39636CADF2B14F90572D122D /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				A10042,
-				A10030,
-				YMS0005 /* Yams in Frameworks */,
+				F6951B7026A9ABC83EB7A583 /* Cocoa.framework in Frameworks */,
+				1192B4E07CB73CE52B73397A /* NetworkExtension.framework in Frameworks */,
+				C715B3A41E6034141A9329BE /* MihomoCore.xcframework in Frameworks */,
+				599CCDA2D5B238AF73EDF62D /* Yams in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		F20002 /* Frameworks */ = {
+		9DE882A8FCF34B2CAEEB6D1E /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				A10041,
-				A10031,
-				YMS0006 /* Yams in Frameworks */,
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-		F20003 /* Frameworks */ = {
-			isa = PBXFrameworksBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-		AA0007 /* Frameworks */ = {
-			isa = PBXFrameworksBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-				YMS0007 /* Yams in Frameworks */,
+				A11E11AF2CAB6611B7442CD4 /* Cocoa.framework in Frameworks */,
+				01BF7BA8C0F4005A45B22C6E /* NetworkExtension.framework in Frameworks */,
+				1523F68758DA2845A73E68DE /* MihomoCore.xcframework in Frameworks */,
+				7E01617C460A452BA5EDB108 /* Yams in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
-		G10001 /* Root */ = {
+		4A2B7C26C715749C1D881EAC /* OS X */ = {
 			isa = PBXGroup;
 			children = (
-				B10070,
-				G10002,
-				G10003,
-				G10004,
-				AA0004,
-				G10010,
-				G10005,
-				G10006,
-				G10007,
+				4E02415D2E45FB235C0EF142 /* Cocoa.framework */,
+			);
+			name = "OS X";
+			sourceTree = "<group>";
+		};
+		8187F3BB8FCEA36AC93E802C /* PacketTunnelMac */ = {
+			isa = PBXGroup;
+			children = (
+				720E19EEF39E6C95A95649DA /* PacketTunnelMac.entitlements */,
+				809DB4CA51000087EE0949AF /* Info.plist */,
+			);
+			path = PacketTunnelMac;
+			sourceTree = "<group>";
+		};
+		G10001 = {
+			isa = PBXGroup;
+			children = (
+				B10070 /* Local.xcconfig */,
+				G10002 /* BaoLianDeng */,
+				G10003 /* PacketTunnel */,
+				G10004 /* Shared */,
+				G10005 /* Framework */,
+				G10006 /* Frameworks */,
+				G10007 /* Products */,
+				8187F3BB8FCEA36AC93E802C /* PacketTunnelMac */,
+				881BF3538A657F9F7F3951E8 /* main.swift */,
 			);
 			sourceTree = "<group>";
 		};
 		G10002 /* BaoLianDeng */ = {
 			isa = PBXGroup;
 			children = (
-				B10001,
-				B10011,
-				B10012,
-				B10010,
-				G10009,
-				G10008,
+				B10001 /* BaoLianDengApp.swift */,
+				B10011 /* Info.plist */,
+				B10012 /* BaoLianDeng.entitlements */,
+				B10010 /* Assets.xcassets */,
+				G10009 /* Models */,
+				G10008 /* Views */,
 			);
 			path = BaoLianDeng;
 			sourceTree = "<group>";
@@ -207,9 +165,7 @@
 		G10003 /* PacketTunnel */ = {
 			isa = PBXGroup;
 			children = (
-				B10020,
-				B10021,
-				B10022,
+				B10020 /* PacketTunnelProvider.swift */,
 			);
 			path = PacketTunnel;
 			sourceTree = "<group>";
@@ -217,10 +173,10 @@
 		G10004 /* Shared */ = {
 			isa = PBXGroup;
 			children = (
-				B10090,
-				B10007,
-				B10008,
-				B10009,
+				B10090 /* AppLogger.swift */,
+				B10007 /* Constants.swift */,
+				B10008 /* ConfigManager.swift */,
+				B10009 /* VPNManager.swift */,
 			);
 			path = Shared;
 			sourceTree = "<group>";
@@ -228,7 +184,7 @@
 		G10005 /* Framework */ = {
 			isa = PBXGroup;
 			children = (
-				B10030,
+				B10030 /* MihomoCore.xcframework */,
 			);
 			path = Framework;
 			sourceTree = "<group>";
@@ -236,7 +192,9 @@
 		G10006 /* Frameworks */ = {
 			isa = PBXGroup;
 			children = (
-				B10040,
+				B10040 /* NetworkExtension.framework */,
+				4A2B7C26C715749C1D881EAC /* OS X */,
+				9677D8DCB6006F09D5E716D6 /* SystemExtensions.framework */,
 			);
 			name = Frameworks;
 			sourceTree = "<group>";
@@ -244,86 +202,44 @@
 		G10007 /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				C10001,
-				C20001,
-				C30001,
-				AA0003,
+				259DB0A8D1BC3A31D635256A /* PacketTunnel.appex */,
+				8A37D4B4A6176DB152B15D42 /* BaoLianDeng.app */,
 			);
 			name = Products;
-			sourceTree = "<group>";
-		};
-		AA0004 /* BaoLianDengTests */ = {
-			isa = PBXGroup;
-			children = (
-				AA0002,
-			);
-			path = BaoLianDengTests;
-			sourceTree = "<group>";
-		};
-		G10010 /* BaoLianDengUITests */ = {
-			isa = PBXGroup;
-			children = (
-				B10080,
-			);
-			path = BaoLianDengUITests;
-			sourceTree = "<group>";
-		};
-		G10009 /* Models */ = {
-			isa = PBXGroup;
-			children = (
-				B10060,
-			);
-			path = Models;
 			sourceTree = "<group>";
 		};
 		G10008 /* Views */ = {
 			isa = PBXGroup;
 			children = (
-				B10002,
-				B10003,
-				B10004,
-				B10006,
-				B10035,
-				B10050,
-				B10051,
+				B10002 /* HomeView.swift */,
+				B10003 /* TrafficView.swift */,
+				B10004 /* ConfigEditorView.swift */,
+				B10006 /* AboutView.swift */,
+				B10035 /* TunnelLogView.swift */,
+				B10050 /* SettingsView.swift */,
+				B10051 /* YAMLEditor.swift */,
 			);
 			path = Views;
+			sourceTree = "<group>";
+		};
+		G10009 /* Models */ = {
+			isa = PBXGroup;
+			children = (
+				B10060 /* TrafficStore.swift */,
+			);
+			path = Models;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
-		C10001T /* BaoLianDeng */ = {
+		037A5AF56A256698DCED8763 /* PacketTunnel */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = X10001;
+			buildConfigurationList = 727002C1957CE115B06B49FF /* Build configuration list for PBXNativeTarget "PacketTunnel" */;
 			buildPhases = (
-				S10001,
-				F20001,
-				R10001,
-				F10002,
-				F10001,
-				F10003,
-			);
-			buildRules = (
-			);
-			dependencies = (
-				D10002,
-			);
-			name = BaoLianDeng;
-			packageProductDependencies = (
-				YMS0002 /* Yams */,
-			);
-			productName = BaoLianDeng;
-			productReference = C10001;
-			productType = "com.apple.product-type.application";
-		};
-		C10002 /* PacketTunnel */ = {
-			isa = PBXNativeTarget;
-			buildConfigurationList = X10002;
-			buildPhases = (
-				S10002,
-				F20002,
-				R10002,
+				AC6927007E0505BD42D960D3 /* Sources */,
+				9DE882A8FCF34B2CAEEB6D1E /* Frameworks */,
+				9A21E40F72630AD727EE4EFB /* Resources */,
 			);
 			buildRules = (
 			);
@@ -331,50 +247,33 @@
 			);
 			name = PacketTunnel;
 			packageProductDependencies = (
-				YMS0003 /* Yams */,
+				BDB2BE65B199185132229163 /* Yams */,
 			);
 			productName = PacketTunnel;
-			productReference = C20001;
+			productReference = 259DB0A8D1BC3A31D635256A /* PacketTunnel.appex */;
 			productType = "com.apple.product-type.app-extension";
 		};
-		C10003 /* BaoLianDengUITests */ = {
+		F66874266FF58B2DD8903C6E /* BaoLianDeng */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = X10004;
+			buildConfigurationList = 3EC5C41D1A2FE093C1B264E2 /* Build configuration list for PBXNativeTarget "BaoLianDeng" */;
 			buildPhases = (
-				S10003,
-				F20003,
-				R10003,
+				060D40C4E0CDCA287A6C09A8 /* Sources */,
+				39636CADF2B14F90572D122D /* Frameworks */,
+				85C1707622B3DE6CF260E736 /* Resources */,
+				9CEE85C0AA6DABF4506C9D63 /* Embed App Extensions */,
 			);
 			buildRules = (
 			);
 			dependencies = (
-				D10004,
+				DA703E0CEAA502F686AA37BF /* PBXTargetDependency */,
 			);
-			name = BaoLianDengUITests;
-			productName = BaoLianDengUITests;
-			productReference = C30001;
-			productType = "com.apple.product-type.bundle.ui-testing";
-		};
-		AA0005 /* BaoLianDengTests */ = {
-			isa = PBXNativeTarget;
-			buildConfigurationList = AA0011;
-			buildPhases = (
-				AA0006,
-				AA0007,
-				AA0008,
-			);
-			buildRules = (
-			);
-			dependencies = (
-				AA0013,
-			);
-			name = BaoLianDengTests;
+			name = BaoLianDeng;
 			packageProductDependencies = (
-				YMS0004 /* Yams */,
+				26E740A797906E5C84A95212 /* Yams */,
 			);
-			productName = BaoLianDengTests;
-			productReference = AA0003;
-			productType = "com.apple.product-type.bundle.unit-test";
+			productName = BaoLianDeng;
+			productReference = 8A37D4B4A6176DB152B15D42 /* BaoLianDeng.app */;
+			productType = "com.apple.product-type.application";
 		};
 /* End PBXNativeTarget section */
 
@@ -385,24 +284,8 @@
 				BuildIndependentTargetsInParallel = 1;
 				LastSwiftUpdateCheck = 1540;
 				LastUpgradeCheck = 1540;
-				TargetAttributes = {
-					C10001T = {
-						CreatedOnToolsVersion = 15.4;
-					};
-					C10002 = {
-						CreatedOnToolsVersion = 15.4;
-					};
-					C10003 = {
-						CreatedOnToolsVersion = 15.4;
-						TestTargetID = C10001T;
-					};
-					AA0005 = {
-						CreatedOnToolsVersion = 15.4;
-						TestTargetID = C10001T;
-					};
-				};
 			};
-			buildConfigurationList = X10003;
+			buildConfigurationList = X10003 /* Build configuration list for PBXProject "BaoLianDeng" */;
 			compatibilityVersion = "Xcode 14.0";
 			developmentRegion = en;
 			hasScannedForEncodings = 0;
@@ -414,42 +297,26 @@
 			packageReferences = (
 				YMS0001 /* XCRemoteSwiftPackageReference "Yams" */,
 			);
-			productRefGroup = G10007;
+			productRefGroup = G10007 /* Products */;
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
-				C10001T,
-				C10002,
-				C10003,
-				AA0005,
+				F66874266FF58B2DD8903C6E /* BaoLianDeng */,
+				037A5AF56A256698DCED8763 /* PacketTunnel */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
-		R10001 /* Resources */ = {
+		85C1707622B3DE6CF260E736 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				A10010,
+				9161E23D345558ED5649452F /* Assets.xcassets in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		R10002 /* Resources */ = {
-			isa = PBXResourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-		R10003 /* Resources */ = {
-			isa = PBXResourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-		AA0008 /* Resources */ = {
+		9A21E40F72630AD727EE4EFB /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -459,78 +326,189 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
-		S10001 /* Sources */ = {
+		060D40C4E0CDCA287A6C09A8 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				A10001,
-				A10002,
-				A10003,
-				A10004,
-				A10006,
-				A10035,
-				A10090,
-				A10007,
-				A10008,
-				A10009,
-				A10050,
-				A10051,
-				A10060,
+				DFFA836A5DFCC6D3BFF95EB6 /* BaoLianDengApp.swift in Sources */,
+				45FA5D0C3EA6EE814F43E891 /* HomeView.swift in Sources */,
+				489D78A7BFE5597B42E4C447 /* TrafficView.swift in Sources */,
+				7A21C63533E42559B2CDF4E6 /* ConfigEditorView.swift in Sources */,
+				5F1DE7E22A0EE243182E400A /* AboutView.swift in Sources */,
+				AC0B915E8C1239813ABF4AB7 /* TunnelLogView.swift in Sources */,
+				7D0DED107502CFFD6FA1D952 /* SettingsView.swift in Sources */,
+				61BC365FA82815F443D0E346 /* YAMLEditor.swift in Sources */,
+				A9840B29BC5EC55F29F0BA38 /* TrafficStore.swift in Sources */,
+				C3DAB7AB1483CF34E41BAAFB /* AppLogger.swift in Sources */,
+				D28CFAAD4562ECF087671BE7 /* Constants.swift in Sources */,
+				8263DE84A3B841EF63A2FF89 /* ConfigManager.swift in Sources */,
+				8D9BF44D7D340ADB5C09AEF9 /* VPNManager.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		S10002 /* Sources */ = {
+		AC6927007E0505BD42D960D3 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				A10020,
-				A10091,
-				A10021,
-				A10022,
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-		S10003 /* Sources */ = {
-			isa = PBXSourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-				A10080,
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-		AA0006 /* Sources */ = {
-			isa = PBXSourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-				AA0001,
+				9EAAFF911784E9AE012953A3 /* PacketTunnelProvider.swift in Sources */,
+				EBAC80D31A3CCD3F3C083FDA /* AppLogger.swift in Sources */,
+				9C1CFB15DEC224B8210EA2E9 /* Constants.swift in Sources */,
+				1C46310C4BA03116BAE1CF24 /* ConfigManager.swift in Sources */,
+				ADFBB07EC9AE7B14EE8CF08D /* VPNManager.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
-		D10002 /* PBXTargetDependency */ = {
+		DA703E0CEAA502F686AA37BF /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
-			target = C10002;
-			targetProxy = D10001;
-		};
-		D10004 /* PBXTargetDependency */ = {
-			isa = PBXTargetDependency;
-			target = C10001T;
-			targetProxy = D10003;
-		};
-		AA0013 /* PBXTargetDependency */ = {
-			isa = PBXTargetDependency;
-			target = C10001T;
-			targetProxy = AA0012;
+			name = PacketTunnel;
+			target = 037A5AF56A256698DCED8763 /* PacketTunnel */;
+			targetProxy = 1536C2A90777E05354ED602F /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
-		/* Debug - Project */
+		06AC95C84A776847DF0FBFDB /* Release */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = B10070 /* Local.xcconfig */;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = PacketTunnelMac/PacketTunnelMac.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 6;
+				ENABLE_HARDENED_RUNTIME = YES;
+				FRAMEWORK_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(PROJECT_DIR)/Framework",
+				);
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = PacketTunnelMac/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MARKETING_VERSION = 2.0;
+				OTHER_LDFLAGS = (
+					"-lresolv",
+					"-ObjC",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = io.github.baoliandeng.macos.PacketTunnel;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				WRAPPER_EXTENSION = appex;
+			};
+			name = Release;
+		};
+		51D5A9072314B0B4FE0F84C8 /* Release */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = B10070 /* Local.xcconfig */;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = BaoLianDeng/BaoLianDeng.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 6;
+				ENABLE_HARDENED_RUNTIME = YES;
+				FRAMEWORK_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(PROJECT_DIR)/Framework",
+				);
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = BaoLianDeng/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MARKETING_VERSION = 2.0;
+				OTHER_LDFLAGS = (
+					"-lresolv",
+					"-ObjC",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = io.github.baoliandeng.macos;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+		D11C88732910D050C57C2AEE /* Debug */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = B10070 /* Local.xcconfig */;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = PacketTunnelMac/PacketTunnelMac.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 6;
+				ENABLE_HARDENED_RUNTIME = YES;
+				FRAMEWORK_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(PROJECT_DIR)/Framework",
+				);
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = PacketTunnelMac/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MARKETING_VERSION = 2.0;
+				OTHER_LDFLAGS = (
+					"-lresolv",
+					"-ObjC",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = io.github.baoliandeng.macos.PacketTunnel;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				WRAPPER_EXTENSION = appex;
+			};
+			name = Debug;
+		};
+		E9D48DA79572E3916C0F3AEF /* Debug */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = B10070 /* Local.xcconfig */;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = BaoLianDeng/BaoLianDeng.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 6;
+				ENABLE_HARDENED_RUNTIME = YES;
+				FRAMEWORK_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(PROJECT_DIR)/Framework",
+				);
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = BaoLianDeng/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MARKETING_VERSION = 2.0;
+				OTHER_LDFLAGS = (
+					"-lresolv",
+					"-ObjC",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = io.github.baoliandeng.macos;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
 		Y10001 /* Debug */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = B10070;
+			baseConfigurationReference = B10070 /* Local.xcconfig */;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
 				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
@@ -550,19 +528,18 @@
 				);
 				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
-				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				ONLY_ACTIVE_ARCH = YES;
-				SDKROOT = iphoneos;
+				SDKROOT = macosx;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "$(inherited) DEBUG";
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 			};
 			name = Debug;
 		};
-		/* Release - Project */
 		Y10002 /* Release */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = B10070;
+			baseConfigurationReference = B10070 /* Local.xcconfig */;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
 				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
@@ -576,235 +553,31 @@
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
-				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
 				MTL_ENABLE_DEBUG_INFO = NO;
-				SDKROOT = iphoneos;
+				SDKROOT = macosx;
 				SWIFT_COMPILATION_MODE = wholemodule;
 				VALIDATE_PRODUCT = YES;
-			};
-			name = Release;
-		};
-		/* Debug - App Target */
-		Y10003 /* Debug */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
-				CODE_SIGN_ENTITLEMENTS = BaoLianDeng/BaoLianDeng.entitlements;
-				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 6;
-				FRAMEWORK_SEARCH_PATHS = (
-					"$(inherited)",
-					"$(PROJECT_DIR)/Framework",
-				);
-				GENERATE_INFOPLIST_FILE = NO;
-				INFOPLIST_FILE = BaoLianDeng/Info.plist;
-				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = NO;
-				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
-				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
-				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
-				LD_RUNPATH_SEARCH_PATHS = (
-					"$(inherited)",
-					"@executable_path/Frameworks",
-				);
-				MARKETING_VERSION = 2.0;
-				OTHER_LDFLAGS = (
-					"-lresolv",
-					"-ObjC",
-				);
-				PRODUCT_BUNDLE_IDENTIFIER = io.github.baoliandeng;
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				SWIFT_EMIT_LOC_STRINGS = YES;
-				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = "1,2";
-			};
-			name = Debug;
-		};
-		/* Release - App Target */
-		Y10004 /* Release */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
-				CODE_SIGN_ENTITLEMENTS = BaoLianDeng/BaoLianDeng.entitlements;
-				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 6;
-				FRAMEWORK_SEARCH_PATHS = (
-					"$(inherited)",
-					"$(PROJECT_DIR)/Framework",
-				);
-				GENERATE_INFOPLIST_FILE = NO;
-				INFOPLIST_FILE = BaoLianDeng/Info.plist;
-				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = NO;
-				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
-				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
-				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
-				LD_RUNPATH_SEARCH_PATHS = (
-					"$(inherited)",
-					"@executable_path/Frameworks",
-				);
-				OTHER_LDFLAGS = (
-					"-lresolv",
-					"-ObjC",
-				);
-				MARKETING_VERSION = 2.0;
-				PRODUCT_BUNDLE_IDENTIFIER = io.github.baoliandeng;
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				SWIFT_EMIT_LOC_STRINGS = YES;
-				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = "1,2";
-			};
-			name = Release;
-		};
-		/* Debug - PacketTunnel Target */
-		Y10005 /* Debug */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				CODE_SIGN_ENTITLEMENTS = PacketTunnel/PacketTunnel.entitlements;
-				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 6;
-				FRAMEWORK_SEARCH_PATHS = (
-					"$(inherited)",
-					"$(PROJECT_DIR)/Framework",
-				);
-				GENERATE_INFOPLIST_FILE = NO;
-				INFOPLIST_FILE = PacketTunnel/Info.plist;
-				LD_RUNPATH_SEARCH_PATHS = (
-					"$(inherited)",
-					"@executable_path/Frameworks",
-					"@executable_path/../../Frameworks",
-				);
-				MARKETING_VERSION = 2.0;
-				OTHER_LDFLAGS = (
-					"-lresolv",
-					"-ObjC",
-				);
-				PRODUCT_BUNDLE_IDENTIFIER = io.github.baoliandeng.PacketTunnel;
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				SKIP_INSTALL = YES;
-				SWIFT_EMIT_LOC_STRINGS = YES;
-				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = "1,2";
-			};
-			name = Debug;
-		};
-		/* Release - PacketTunnel Target */
-		Y10006 /* Release */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				CODE_SIGN_ENTITLEMENTS = PacketTunnel/PacketTunnel.entitlements;
-				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 6;
-				FRAMEWORK_SEARCH_PATHS = (
-					"$(inherited)",
-					"$(PROJECT_DIR)/Framework",
-				);
-				GENERATE_INFOPLIST_FILE = NO;
-				INFOPLIST_FILE = PacketTunnel/Info.plist;
-				LD_RUNPATH_SEARCH_PATHS = (
-					"$(inherited)",
-					"@executable_path/Frameworks",
-					"@executable_path/../../Frameworks",
-				);
-				OTHER_LDFLAGS = (
-					"-lresolv",
-					"-ObjC",
-				);
-				MARKETING_VERSION = 2.0;
-				PRODUCT_BUNDLE_IDENTIFIER = io.github.baoliandeng.PacketTunnel;
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				SKIP_INSTALL = YES;
-				SWIFT_EMIT_LOC_STRINGS = YES;
-				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = "1,2";
-			};
-			name = Release;
-		};
-		/* Debug - UITests Target */
-		Y10007 /* Debug */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 6;
-				GENERATE_INFOPLIST_FILE = YES;
-				MARKETING_VERSION = 2.0;
-				PRODUCT_BUNDLE_IDENTIFIER = io.github.baoliandeng.UITests;
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				SWIFT_EMIT_LOC_STRINGS = NO;
-				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = "1,2";
-				TEST_TARGET_NAME = BaoLianDeng;
-			};
-			name = Debug;
-		};
-		/* Release - UITests Target */
-		Y10008 /* Release */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 6;
-				GENERATE_INFOPLIST_FILE = YES;
-				MARKETING_VERSION = 2.0;
-				PRODUCT_BUNDLE_IDENTIFIER = io.github.baoliandeng.UITests;
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				SWIFT_EMIT_LOC_STRINGS = NO;
-				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = "1,2";
-				TEST_TARGET_NAME = BaoLianDeng;
-			};
-			name = Release;
-		};
-		/* Debug - UnitTests Target */
-		AA0009 /* Debug */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				BUNDLE_LOADER = "$(TEST_HOST)";
-				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 6;
-				GENERATE_INFOPLIST_FILE = YES;
-				MARKETING_VERSION = 2.0;
-				PRODUCT_BUNDLE_IDENTIFIER = io.github.baoliandeng.UnitTests;
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				SWIFT_EMIT_LOC_STRINGS = NO;
-				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = "1,2";
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/BaoLianDeng.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/BaoLianDeng";
-			};
-			name = Debug;
-		};
-		/* Release - UnitTests Target */
-		AA0010 /* Release */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				BUNDLE_LOADER = "$(TEST_HOST)";
-				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 6;
-				GENERATE_INFOPLIST_FILE = YES;
-				MARKETING_VERSION = 2.0;
-				PRODUCT_BUNDLE_IDENTIFIER = io.github.baoliandeng.UnitTests;
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				SWIFT_EMIT_LOC_STRINGS = NO;
-				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = "1,2";
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/BaoLianDeng.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/BaoLianDeng";
 			};
 			name = Release;
 		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
-		X10001 /* Build configuration list for PBXNativeTarget "BaoLianDeng" */ = {
+		3EC5C41D1A2FE093C1B264E2 /* Build configuration list for PBXNativeTarget "BaoLianDeng" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
-				Y10003,
-				Y10004,
+				51D5A9072314B0B4FE0F84C8 /* Release */,
+				E9D48DA79572E3916C0F3AEF /* Debug */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		X10002 /* Build configuration list for PBXNativeTarget "PacketTunnel" */ = {
+		727002C1957CE115B06B49FF /* Build configuration list for PBXNativeTarget "PacketTunnel" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
-				Y10005,
-				Y10006,
+				06AC95C84A776847DF0FBFDB /* Release */,
+				D11C88732910D050C57C2AEE /* Debug */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
@@ -812,26 +585,8 @@
 		X10003 /* Build configuration list for PBXProject "BaoLianDeng" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
-				Y10001,
-				Y10002,
-			);
-			defaultConfigurationIsVisible = 0;
-			defaultConfigurationName = Release;
-		};
-		X10004 /* Build configuration list for PBXNativeTarget "BaoLianDengUITests" */ = {
-			isa = XCConfigurationList;
-			buildConfigurations = (
-				Y10007,
-				Y10008,
-			);
-			defaultConfigurationIsVisible = 0;
-			defaultConfigurationName = Release;
-		};
-		AA0011 /* Build configuration list for PBXNativeTarget "BaoLianDengTests" */ = {
-			isa = XCConfigurationList;
-			buildConfigurations = (
-				AA0009,
-				AA0010,
+				Y10001 /* Debug */,
+				Y10002 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
@@ -850,22 +605,17 @@
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
-		YMS0002 /* Yams */ = {
+		26E740A797906E5C84A95212 /* Yams */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = YMS0001 /* XCRemoteSwiftPackageReference "Yams" */;
 			productName = Yams;
 		};
-		YMS0003 /* Yams */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = YMS0001 /* XCRemoteSwiftPackageReference "Yams" */;
-			productName = Yams;
-		};
-		YMS0004 /* Yams */ = {
+		BDB2BE65B199185132229163 /* Yams */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = YMS0001 /* XCRemoteSwiftPackageReference "Yams" */;
 			productName = Yams;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};
-	rootObject = E10001;
+	rootObject = E10001 /* Project object */;
 }

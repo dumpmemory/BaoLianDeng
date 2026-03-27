@@ -1,16 +1,13 @@
 #import <Foundation/Foundation.h>
 
-FOUNDATION_EXPORT void BridgeSetHomeDir(NSString * _Nullable path);
-FOUNDATION_EXPORT BOOL BridgeSetConfig(NSString * _Nullable yamlContent, NSError * _Nullable * _Nullable error);
-FOUNDATION_EXPORT BOOL BridgeSetLogFile(NSString * _Nullable path, NSError * _Nullable * _Nullable error);
+FOUNDATION_EXPORT void BridgeSetHomeDir(NSString * _Nullable dir);
+FOUNDATION_EXPORT void BridgeSetLogFile(NSString * _Nullable path);
 FOUNDATION_EXPORT BOOL BridgeSetTUNFd(int32_t fd, NSError * _Nullable * _Nullable error);
 
-FOUNDATION_EXPORT BOOL BridgeStartProxy(NSError * _Nullable * _Nullable error);
 FOUNDATION_EXPORT BOOL BridgeStartWithExternalController(NSString * _Nullable addr, NSString * _Nullable secret, NSError * _Nullable * _Nullable error);
 FOUNDATION_EXPORT void BridgeStopProxy(void);
 FOUNDATION_EXPORT BOOL BridgeIsRunning(void);
 
-FOUNDATION_EXPORT NSString * _Nonnull BridgeReadConfig(NSError * _Nullable * _Nullable error);
 FOUNDATION_EXPORT BOOL BridgeValidateConfig(NSString * _Nullable yamlContent, NSError * _Nullable * _Nullable error);
 FOUNDATION_EXPORT void BridgeUpdateLogLevel(NSString * _Nullable level);
 
@@ -26,3 +23,5 @@ FOUNDATION_EXPORT NSString * _Nonnull BridgeTestDNSResolver(NSString * _Nullable
 FOUNDATION_EXPORT NSString * _Nonnull BridgeTestSelectedProxy(NSString * _Nullable apiAddr);
 
 FOUNDATION_EXPORT NSString * _Nonnull BridgeGenerateTUNConfig(int32_t fd, NSString * _Nullable dnsAddr);
+
+FOUNDATION_EXPORT BOOL BridgeStartTun2Socks(int32_t fd, int32_t socksPort, int32_t dnsPort, NSError * _Nullable * _Nullable error);

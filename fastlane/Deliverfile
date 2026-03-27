@@ -1,5 +1,5 @@
 # App identity
-app_identifier "io.github.baoliandeng"
+app_identifier "io.github.baoliandeng.macos"
 
 # Metadata and screenshots paths
 metadata_path "./fastlane/metadata"

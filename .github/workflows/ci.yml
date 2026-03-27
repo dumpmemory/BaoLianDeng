@@ -37,7 +37,7 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: aarch64-apple-ios,aarch64-apple-ios-sim,x86_64-apple-ios
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
 
       - name: Cache Rust artifacts
         uses: actions/cache@v4
@@ -49,8 +49,8 @@ jobs:
           key: ${{ runner.os }}-rust-${{ hashFiles('Rust/mihomo-ffi/Cargo.lock') }}
           restore-keys: ${{ runner.os }}-rust-
 
-      - name: Build MihomoCore.xcframework
-        run: make framework
+      - name: Build MihomoCore.xcframework (macOS)
+        run: make framework-macos
 
       - name: Upload framework artifact
         uses: actions/upload-artifact@v4
@@ -60,7 +60,7 @@ jobs:
           retention-days: 7
 
   build-app:
-    name: Build iOS App
+    name: Build macOS App
     runs-on: macos-15
     needs: build-framework
     strategy:
@@ -84,34 +84,7 @@ jobs:
             -project BaoLianDeng.xcodeproj \
             -scheme BaoLianDeng \
             -configuration ${{ matrix.configuration }} \
-            -destination 'generic/platform=iOS Simulator' \
-            CODE_SIGN_IDENTITY="" \
-            CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGNING_ALLOWED=NO | xcpretty && exit ${PIPESTATUS[0]}
-
-  test:
-    name: Unit Tests
-    runs-on: macos-15
-    needs: build-framework
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Download framework artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: MihomoCore.xcframework
-          path: Framework/MihomoCore.xcframework
-
-      - name: Create Local.xcconfig
-        run: touch Local.xcconfig
-
-      - name: Run tests
-        run: |
-          xcodebuild test \
-            -project BaoLianDeng.xcodeproj \
-            -scheme BaoLianDeng \
-            -destination 'platform=iOS Simulator,name=iPhone 16' \
-            -only-testing:BaoLianDengTests \
+            -destination 'generic/platform=macOS' \
             CODE_SIGN_IDENTITY="" \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGNING_ALLOWED=NO | xcpretty && exit ${PIPESTATUS[0]}

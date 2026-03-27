@@ -266,10 +266,9 @@ struct SubscriptionUsageView: View {
             }
         }
         .navigationTitle("Usage by Subscription")
-        .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             if !trafficStore.subscriptionUsages.isEmpty {
-                ToolbarItem(placement: .topBarTrailing) {
+                ToolbarItem(placement: .automatic) {
                     Button("Reset", role: .destructive) {
                         showResetConfirmation = true
                     }

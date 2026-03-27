@@ -16,17 +16,23 @@
 import Foundation
 import NetworkExtension
 
-final class VPNManager: ObservableObject {
+final class VPNManager: NSObject, ObservableObject {
     static let shared = VPNManager()
 
     @Published var status: NEVPNStatus = .disconnected
     @Published var isProcessing = false
     @Published var errorMessage: String?
+    private func dbg(_ msg: String) {
+        #if DEBUG
+        AppLogger.vpn.debug("\(msg, privacy: .public)")
+        #endif
+    }
 
     private var manager: NETunnelProviderManager?
     private var statusObserver: NSObjectProtocol?
 
-    private init() {
+    private override init() {
+        super.init()
         loadManager()
     }
 
@@ -43,14 +49,26 @@ final class VPNManager: ObservableObject {
     // MARK: - Manager Lifecycle
 
     func loadManager() {
-        NETunnelProviderManager.loadAllFromPreferences { [weak self] managers, error in
-            DispatchQueue.main.async {
-                if let error = error {
-                    self?.errorMessage = "Failed to load VPN config: \(error.localizedDescription)"
-                    return
+        dbg("loadManager called")
+        let mgr = createManager()
+        mgr.saveToPreferences { [weak self] error in
+            if let error = error {
+                self?.dbg("loadManager save error: \(error.localizedDescription)")
+            }
+            mgr.loadFromPreferences { [weak self] error in
+                DispatchQueue.main.async {
+                    if let error = error {
+                        self?.dbg("loadManager load error: \(error.localizedDescription)")
+                    }
+                    // Clear any stale providerConfiguration from a previous app version
+                    if let proto = mgr.protocolConfiguration as? NETunnelProviderProtocol {
+                        proto.providerConfiguration = nil
+                        mgr.protocolConfiguration = proto
+                    }
+                    self?.dbg("loadManager: manager ready")
+                    self?.manager = mgr
+                    self?.observeStatus()
                 }
-                self?.manager = managers?.first ?? self?.createManager()
-                self?.observeStatus()
             }
         }
     }
@@ -86,6 +104,8 @@ final class VPNManager: ObservableObject {
                 self?.isProcessing = false
             }
             if connection.status == .connected {
+                // Full config (with subscription) was already passed via providerConfiguration.
+                // Just select the saved proxy node via REST API.
                 self?.selectSavedProxyNode()
             }
             if connection.status == .disconnected {
@@ -99,14 +119,48 @@ final class VPNManager: ObservableObject {
     // MARK: - Connect / Disconnect
 
     func start() {
-        guard !isProcessing else { return }
+        dbg("start() called, isProcessing=\(isProcessing), manager=\(manager != nil), connStatus=\(manager?.connection.status.rawValue ?? -1)")
+        guard !isProcessing else {
+            dbg("start() blocked by isProcessing")
+            return
+        }
 
         isProcessing = true
         errorMessage = nil
 
-        let saveAndStart = { [weak self] in
-            guard let self = self, let manager = self.manager else { return }
+        // If the tunnel is stuck in .connecting from a previous failed attempt,
+        // stop it first — calling startTunnel while .connecting is a no-op.
+        if let connection = manager?.connection,
+           connection.status == .connecting || connection.status == .reasserting {
+            dbg("start() detected stuck .connecting, stopping first")
+            connection.stopVPNTunnel()
+            DispatchQueue.global().async { [weak self] in
+                for i in 0..<30 {
+                    let s = self?.manager?.connection.status
+                    if s == .disconnected { break }
+                    if i == 29 { self?.dbg("start() timeout waiting for disconnect, status=\(s?.rawValue ?? -1)") }
+                    Thread.sleep(forTimeInterval: 0.1)
+                }
+                DispatchQueue.main.async {
+                    self?.dbg("start() retrying after stop")
+                    self?.isProcessing = false
+                    self?.start()
+                }
+            }
+            return
+        }
 
+        let saveAndStart = { [weak self] in
+            guard let self = self, let manager = self.manager else {
+                DispatchQueue.main.async {
+                    self?.dbg("start() manager is nil!")
+                    self?.isProcessing = false
+                    self?.errorMessage = "VPN manager not loaded"
+                }
+                return
+            }
+
+            self.dbg("saveAndStart: saving preferences")
             manager.isEnabled = true
             manager.saveToPreferences { error in
                 if let error = error {
@@ -126,9 +180,18 @@ final class VPNManager: ObservableObject {
                         return
                     }
 
+                    // Re-observe status after loadFromPreferences
+                    // (the connection object may have changed)
+                    DispatchQueue.main.async {
+                        self.observeStatus()
+                    }
+
+                    self.dbg("saveAndStart: calling startTunnel")
                     do {
                         try (manager.connection as? NETunnelProviderSession)?.startTunnel()
+                        self.dbg("saveAndStart: startTunnel called OK")
                     } catch {
+                        self.dbg("saveAndStart: startTunnel threw: \(error)")
                         DispatchQueue.main.async {
                             self.isProcessing = false
                             self.errorMessage = "Failed to start tunnel: \(error.localizedDescription)"
@@ -150,11 +213,14 @@ final class VPNManager: ObservableObject {
             }
         }
 
+        // Pass subscription URL and settings to the extension via providerConfiguration
+        // (avoids App Group which triggers Sequoia "access data from other apps" dialog)
+        passSettingsToProvider()
+
         saveAndStart()
     }
 
     func stop() {
-        guard !isProcessing else { return }
         isProcessing = true
         manager?.connection.stopVPNTunnel()
     }
@@ -223,24 +289,109 @@ final class VPNManager: ObservableObject {
         return true
     }
 
-    /// Select a specific proxy node in the running tunnel via IPC.
+    /// Select a specific proxy node via Mihomo's REST API.
     func selectNode(_ nodeName: String) {
-        sendMessage(["action": "select_node", "node": nodeName]) { _ in }
+        selectNodeViaRestAPI(nodeName)
     }
 
-    /// Tell the PacketTunnel to select the user's saved proxy node via IPC.
+    /// Select the user's saved proxy node via Mihomo's REST API.
     private func selectSavedProxyNode() {
+        let defaults = AppConstants.sharedDefaults
+        guard let nodeName = defaults.string(forKey: "selectedNode"), !nodeName.isEmpty else {
+            dbg("selectSavedProxyNode: no saved node")
+            return
+        }
         // Delay to let Mihomo's external controller finish initializing
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
-            self?.sendMessage(["action": "select_node"]) { _ in }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [weak self] in
+            self?.selectNodeViaRestAPI(nodeName, retriesLeft: 5)
         }
     }
 
+    private func selectNodeViaRestAPI(_ nodeName: String, retriesLeft: Int = 0) {
+        guard let url = URL(string: "http://\(AppConstants.externalControllerAddr)/proxies") else { return }
+        URLSession.shared.dataTask(with: url) { [weak self] data, _, error in
+            guard let data = data,
+                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let proxies = json["proxies"] as? [String: Any] else {
+                self?.dbg("selectNode: failed to fetch proxy list: \(error?.localizedDescription ?? "unknown") (retries=\(retriesLeft))")
+                if retriesLeft > 0 {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+                        self?.selectNodeViaRestAPI(nodeName, retriesLeft: retriesLeft - 1)
+                    }
+                }
+                return
+            }
+            let selectorGroups = proxies.compactMap { name, value -> String? in
+                guard let info = value as? [String: Any],
+                      (info["type"] as? String) == "Selector" else { return nil }
+                return name
+            }
+            self?.dbg("selectNode: \(nodeName) in groups \(selectorGroups)")
+            let body = try? JSONSerialization.data(withJSONObject: ["name": nodeName])
+            for groupName in selectorGroups {
+                guard let encoded = groupName.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed),
+                      let putURL = URL(string: "http://\(AppConstants.externalControllerAddr)/proxies/\(encoded)") else { continue }
+                var request = URLRequest(url: putURL)
+                request.httpMethod = "PUT"
+                request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+                request.httpBody = body
+                URLSession.shared.dataTask(with: request) { [weak self] _, response, putError in
+                    if let putError = putError {
+                        self?.dbg("selectNode \(groupName): \(putError.localizedDescription)")
+                    } else if let http = response as? HTTPURLResponse {
+                        self?.dbg("selectNode \(groupName): \(http.statusCode)")
+                    }
+                }.resume()
+            }
+        }.resume()
+    }
+
+    /// Build the full YAML config (base + subscription + user settings),
+    /// zlib-compress it, and pass via providerConfiguration to overcome the 512 KB IPC limit.
+    private func passSettingsToProvider() {
+        guard let proto = manager?.protocolConfiguration as? NETunnelProviderProtocol else { return }
+        let defaults = AppConstants.sharedDefaults
+
+        // Start with the base config
+        var yaml = ConfigManager.shared.defaultConfig()
+
+        // Merge selected subscription if available
+        if let idString = defaults.string(forKey: "selectedSubscriptionID"),
+           let data = defaults.data(forKey: "subscriptions") {
+            struct Sub: Decodable { var id: UUID; var rawContent: String? }
+            if let subs = try? JSONDecoder().decode([Sub].self, from: data),
+               let selectedID = UUID(uuidString: idString),
+               let selected = subs.first(where: { $0.id == selectedID }),
+               let raw = selected.rawContent {
+                yaml = ConfigManager.mergeSubscription(raw, baseConfig: yaml, defaultConfig: yaml)
+            }
+        }
+
+        // Apply user settings
+        if let logLevel = defaults.string(forKey: "logLevel") {
+            yaml = yaml.replacingOccurrences(
+                of: #"log-level:\s*\w+"#, with: "log-level: \(logLevel)",
+                options: .regularExpression)
+        }
+        if let mode = defaults.string(forKey: "proxyMode") {
+            yaml = yaml.replacingOccurrences(
+                of: #"mode:\s*\w+"#, with: "mode: \(mode)",
+                options: .regularExpression)
+        }
+
+        // Compress with zlib and store in providerConfiguration
+        var providerConfig: [String: Any] = [:]
+        if let yamlData = yaml.data(using: .utf8),
+           let compressed = try? (yamlData as NSData).compressed(using: .zlib) as Data {
+            providerConfig["configData"] = compressed
+            dbg("passSettings: \(yamlData.count) -> \(compressed.count) bytes (zlib)")
+        }
+
+        proto.providerConfiguration = providerConfig
+        manager?.protocolConfiguration = proto
+    }
+
     private static func clearTunnelLog() {
-        guard let dir = FileManager.default.containerURL(
-            forSecurityApplicationGroupIdentifier: AppConstants.appGroupIdentifier
-        ) else { return }
-        let logURL = dir.appendingPathComponent("tunnel.log")
-        try? FileManager.default.removeItem(at: logURL)
+        // Log is now in the extension's sandbox — cleared on next startTunnel
     }
 }
