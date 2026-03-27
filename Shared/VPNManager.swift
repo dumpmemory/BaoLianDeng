@@ -76,24 +76,34 @@ final class VPNManager: NSObject, ObservableObject {
 
     func loadManager() {
         dbg("loadManager called")
-        let mgr = createManager()
-        mgr.saveToPreferences { [weak self] error in
+        NETunnelProviderManager.loadAllFromPreferences { [weak self] managers, error in
+            guard let self = self else { return }
             if let error = error {
-                self?.dbg("loadManager save error: \(error.localizedDescription)")
+                self.dbg("loadManager load error: \(error.localizedDescription)")
             }
-            mgr.loadFromPreferences { [weak self] error in
-                DispatchQueue.main.async {
-                    if let error = error {
-                        self?.dbg("loadManager load error: \(error.localizedDescription)")
+            // Reuse existing manager if one exists, otherwise create new
+            let mgr: NETunnelProviderManager
+            if let existing = managers?.first {
+                self.dbg("loadManager: reusing existing config")
+                mgr = existing
+            } else {
+                self.dbg("loadManager: creating new config")
+                mgr = self.createManager()
+            }
+            mgr.isEnabled = true
+            mgr.saveToPreferences { error in
+                if let error = error {
+                    self.dbg("loadManager save error: \(error.localizedDescription)")
+                }
+                mgr.loadFromPreferences { error in
+                    DispatchQueue.main.async {
+                        if let error = error {
+                            self.dbg("loadManager reload error: \(error.localizedDescription)")
+                        }
+                        self.dbg("loadManager: manager ready")
+                        self.manager = mgr
+                        self.observeStatus()
                     }
-                    // Clear any stale providerConfiguration from a previous app version
-                    if let proto = mgr.protocolConfiguration as? NETunnelProviderProtocol {
-                        proto.providerConfiguration = nil
-                        mgr.protocolConfiguration = proto
-                    }
-                    self?.dbg("loadManager: manager ready")
-                    self?.manager = mgr
-                    self?.observeStatus()
                 }
             }
         }
