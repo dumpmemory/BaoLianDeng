@@ -162,18 +162,6 @@ final class VPNManager: NSObject, ObservableObject {
             return
         }
 
-        #if canImport(SystemExtensions)
-        if !extensionInstalled {
-            dbg("start() extension not installed, opening System Settings")
-            #if canImport(AppKit)
-            if let url = URL(string: "x-apple.systempreferences:com.apple.LoginItems-Settings.extension") {
-                NSWorkspace.shared.open(url)
-            }
-            #endif
-            return
-        }
-        #endif
-
         isProcessing = true
         errorMessage = nil
 
@@ -215,7 +203,12 @@ final class VPNManager: NSObject, ObservableObject {
                 if let error = error {
                     DispatchQueue.main.async {
                         self.isProcessing = false
-                        self.errorMessage = "Failed to save VPN config: \(error.localizedDescription)"
+                        let nsError = error as NSError
+                        if nsError.domain == NEVPNErrorDomain && nsError.code == NEVPNError.configurationDisabled.rawValue {
+                            self.openNetworkExtensionSettings()
+                        } else {
+                            self.errorMessage = "Failed to save VPN config: \(error.localizedDescription)"
+                        }
                     }
                     return
                 }
@@ -243,7 +236,13 @@ final class VPNManager: NSObject, ObservableObject {
                         self.dbg("saveAndStart: startTunnel threw: \(error)")
                         DispatchQueue.main.async {
                             self.isProcessing = false
-                            self.errorMessage = "Failed to start tunnel: \(error.localizedDescription)"
+                            let nsError = error as NSError
+                            // NEVPNError.configurationDisabled means extension not enabled
+                            if nsError.domain == NEVPNErrorDomain && nsError.code == NEVPNError.configurationDisabled.rawValue {
+                                self.openNetworkExtensionSettings()
+                            } else {
+                                self.errorMessage = "Failed to start tunnel: \(error.localizedDescription)"
+                            }
                         }
                     }
                 }
@@ -438,6 +437,14 @@ final class VPNManager: NSObject, ObservableObject {
 
         proto.providerConfiguration = providerConfig
         manager?.protocolConfiguration = proto
+    }
+
+    private func openNetworkExtensionSettings() {
+        #if canImport(AppKit)
+        if let url = URL(string: "x-apple.systempreferences:com.apple.LoginItems-Settings.extension") {
+            NSWorkspace.shared.open(url)
+        }
+        #endif
     }
 
     private static func clearTunnelLog() {
