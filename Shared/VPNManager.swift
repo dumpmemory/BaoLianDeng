@@ -15,6 +15,7 @@
 
 import Foundation
 import NetworkExtension
+import SystemExtensions
 
 final class VPNManager: NSObject, ObservableObject {
     static let shared = VPNManager()
@@ -22,6 +23,7 @@ final class VPNManager: NSObject, ObservableObject {
     @Published var status: NEVPNStatus = .disconnected
     @Published var isProcessing = false
     @Published var errorMessage: String?
+    @Published var extensionInstalled = false
     private func dbg(_ msg: String) {
         #if DEBUG
         AppLogger.vpn.debug("\(msg, privacy: .public)")
@@ -33,7 +35,19 @@ final class VPNManager: NSObject, ObservableObject {
 
     private override init() {
         super.init()
-        loadManager()
+        activateSystemExtension()
+    }
+
+    // MARK: - System Extension Activation
+
+    func activateSystemExtension() {
+        dbg("activateSystemExtension: requesting \(AppConstants.tunnelBundleIdentifier)")
+        let request = OSSystemExtensionRequest.activationRequest(
+            forExtensionWithIdentifier: AppConstants.tunnelBundleIdentifier,
+            queue: .main
+        )
+        request.delegate = self
+        OSSystemExtensionManager.shared.submitRequest(request)
     }
 
     deinit {
@@ -393,5 +407,49 @@ final class VPNManager: NSObject, ObservableObject {
 
     private static func clearTunnelLog() {
         // Log is now in the extension's sandbox — cleared on next startTunnel
+    }
+}
+
+// MARK: - OSSystemExtensionRequestDelegate
+
+extension VPNManager: OSSystemExtensionRequestDelegate {
+    func request(_ request: OSSystemExtensionRequest, didFinishWithResult result: OSSystemExtensionRequest.Result) {
+        dbg("sysext didFinish: \(result.rawValue)")
+        switch result {
+        case .completed:
+            extensionInstalled = true
+            loadManager()
+        case .willCompleteAfterReboot:
+            errorMessage = "System extension will activate after reboot"
+        @unknown default:
+            dbg("sysext unknown result: \(result.rawValue)")
+            loadManager()
+        }
+    }
+
+    func request(_ request: OSSystemExtensionRequest, didFailWithError error: Error) {
+        dbg("sysext didFail: \(error.localizedDescription)")
+        // If already installed, OSSystemExtensionError.requestSuperseded — proceed anyway
+        let nsError = error as NSError
+        if nsError.domain == "OSSystemExtensionErrorDomain" {
+            // Code 4 = requestSuperseded (same version already active)
+            dbg("sysext error code=\(nsError.code), proceeding with loadManager")
+            extensionInstalled = true
+            loadManager()
+        } else {
+            errorMessage = "System extension error: \(error.localizedDescription)"
+        }
+    }
+
+    func requestNeedsUserApproval(_ request: OSSystemExtensionRequest) {
+        dbg("sysext needsUserApproval — user must allow in System Settings")
+        errorMessage = "Allow the system extension in System Settings → Privacy & Security"
+    }
+
+    func request(_ request: OSSystemExtensionRequest,
+                 actionForReplacingExtension existing: OSSystemExtensionProperties,
+                 withExtension ext: OSSystemExtensionProperties) -> OSSystemExtensionRequest.ReplacementAction {
+        dbg("sysext replacing \(existing.bundleShortVersion) with \(ext.bundleShortVersion)")
+        return .replace
     }
 }

@@ -29,8 +29,9 @@
 		AC0B915E8C1239813ABF4AB7 /* TunnelLogView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10035 /* TunnelLogView.swift */; };
 		ADFBB07EC9AE7B14EE8CF08D /* VPNManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10009 /* VPNManager.swift */; };
 		C3DAB7AB1483CF34E41BAAFB /* AppLogger.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10090 /* AppLogger.swift */; };
+		F0MAIN0001 /* main.swift in Sources */ = {isa = PBXBuildFile; fileRef = 881BF3538A657F9F7F3951E8 /* main.swift */; };
 		C715B3A41E6034141A9329BE /* MihomoCore.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = B10030 /* MihomoCore.xcframework */; };
-		CEE9200E5015BA697A46FD4A /* PacketTunnel.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = 259DB0A8D1BC3A31D635256A /* PacketTunnel.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		CEE9200E5015BA697A46FD4A /* PacketTunnel.systemextension in Embed System Extensions */ = {isa = PBXBuildFile; fileRef = 259DB0A8D1BC3A31D635256A /* PacketTunnel.systemextension */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		D28CFAAD4562ECF087671BE7 /* Constants.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10007 /* Constants.swift */; };
 		DFFA836A5DFCC6D3BFF95EB6 /* BaoLianDengApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10001 /* BaoLianDengApp.swift */; };
 		EBAC80D31A3CCD3F3C083FDA /* AppLogger.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10090 /* AppLogger.swift */; };
@@ -48,21 +49,21 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXCopyFilesBuildPhase section */
-		9CEE85C0AA6DABF4506C9D63 /* Embed App Extensions */ = {
+		9CEE85C0AA6DABF4506C9D63 /* Embed System Extensions */ = {
 			isa = PBXCopyFilesBuildPhase;
 			buildActionMask = 2147483647;
-			dstPath = "";
-			dstSubfolderSpec = 13;
+			dstPath = "$(SYSTEM_EXTENSIONS_FOLDER_PATH)";
+			dstSubfolderSpec = 16;
 			files = (
-				CEE9200E5015BA697A46FD4A /* PacketTunnel.appex in Embed App Extensions */,
+				CEE9200E5015BA697A46FD4A /* PacketTunnel.systemextension in Embed System Extensions */,
 			);
-			name = "Embed App Extensions";
+			name = "Embed System Extensions";
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
-		259DB0A8D1BC3A31D635256A /* PacketTunnel.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; name = PacketTunnel.appex; path = PacketTunnel.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		259DB0A8D1BC3A31D635256A /* PacketTunnel.systemextension */ = {isa = PBXFileReference; explicitFileType = "wrapper.system-extension"; includeInIndex = 0; name = PacketTunnel.systemextension; path = PacketTunnel.systemextension; sourceTree = BUILT_PRODUCTS_DIR; };
 		4E02415D2E45FB235C0EF142 /* Cocoa.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Cocoa.framework; path = Platforms/MacOSX.platform/Developer/SDKs/MacOSX15.0.sdk/System/Library/Frameworks/Cocoa.framework; sourceTree = DEVELOPER_DIR; };
 		720E19EEF39E6C95A95649DA /* PacketTunnelMac.entitlements */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.entitlements; path = PacketTunnelMac.entitlements; sourceTree = "<group>"; };
 		809DB4CA51000087EE0949AF /* Info.plist */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
@@ -202,7 +203,7 @@
 		G10007 /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				259DB0A8D1BC3A31D635256A /* PacketTunnel.appex */,
+				259DB0A8D1BC3A31D635256A /* PacketTunnel.systemextension */,
 				8A37D4B4A6176DB152B15D42 /* BaoLianDeng.app */,
 			);
 			name = Products;
@@ -250,8 +251,8 @@
 				BDB2BE65B199185132229163 /* Yams */,
 			);
 			productName = PacketTunnel;
-			productReference = 259DB0A8D1BC3A31D635256A /* PacketTunnel.appex */;
-			productType = "com.apple.product-type.app-extension";
+			productReference = 259DB0A8D1BC3A31D635256A /* PacketTunnel.systemextension */;
+			productType = "com.apple.product-type.system-extension";
 		};
 		F66874266FF58B2DD8903C6E /* BaoLianDeng */ = {
 			isa = PBXNativeTarget;
@@ -260,7 +261,7 @@
 				060D40C4E0CDCA287A6C09A8 /* Sources */,
 				39636CADF2B14F90572D122D /* Frameworks */,
 				85C1707622B3DE6CF260E736 /* Resources */,
-				9CEE85C0AA6DABF4506C9D63 /* Embed App Extensions */,
+				9CEE85C0AA6DABF4506C9D63 /* Embed System Extensions */,
 			);
 			buildRules = (
 			);
@@ -351,6 +352,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				9EAAFF911784E9AE012953A3 /* PacketTunnelProvider.swift in Sources */,
+				F0MAIN0001 /* main.swift in Sources */,
 				EBAC80D31A3CCD3F3C083FDA /* AppLogger.swift in Sources */,
 				9C1CFB15DEC224B8210EA2E9 /* Constants.swift in Sources */,
 				1C46310C4BA03116BAE1CF24 /* ConfigManager.swift in Sources */,
@@ -375,7 +377,9 @@
 			baseConfigurationReference = B10070 /* Local.xcconfig */;
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = PacketTunnelMac/PacketTunnelMac.entitlements;
-				CODE_SIGN_STYLE = Automatic;
+				CODE_SIGN_IDENTITY = "Developer ID Application";
+				CODE_SIGN_STYLE = Manual;
+				PROVISIONING_PROFILE_SPECIFIER = "BaoLianDeng PacketTunnel Developer ID";
 				CURRENT_PROJECT_VERSION = 7;
 				ENABLE_HARDENED_RUNTIME = YES;
 				FRAMEWORK_SEARCH_PATHS = (
@@ -399,7 +403,7 @@
 				SDKROOT = macosx;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
-				WRAPPER_EXTENSION = appex;
+				WRAPPER_EXTENSION = systemextension;
 			};
 			name = Release;
 		};
@@ -410,7 +414,9 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = BaoLianDeng/BaoLianDeng.entitlements;
-				CODE_SIGN_STYLE = Automatic;
+				CODE_SIGN_IDENTITY = "Developer ID Application";
+				CODE_SIGN_STYLE = Manual;
+				PROVISIONING_PROFILE_SPECIFIER = "BaoLianDeng macOS Developer ID";
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 7;
 				ENABLE_HARDENED_RUNTIME = YES;
@@ -443,7 +449,9 @@
 			baseConfigurationReference = B10070 /* Local.xcconfig */;
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = PacketTunnelMac/PacketTunnelMac.entitlements;
-				CODE_SIGN_STYLE = Automatic;
+				CODE_SIGN_IDENTITY = "Developer ID Application";
+				CODE_SIGN_STYLE = Manual;
+				PROVISIONING_PROFILE_SPECIFIER = "BaoLianDeng PacketTunnel Developer ID";
 				CURRENT_PROJECT_VERSION = 7;
 				ENABLE_HARDENED_RUNTIME = YES;
 				FRAMEWORK_SEARCH_PATHS = (
@@ -467,7 +475,7 @@
 				SDKROOT = macosx;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
-				WRAPPER_EXTENSION = appex;
+				WRAPPER_EXTENSION = systemextension;
 			};
 			name = Debug;
 		};
@@ -478,7 +486,9 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = BaoLianDeng/BaoLianDeng.entitlements;
-				CODE_SIGN_STYLE = Automatic;
+				CODE_SIGN_IDENTITY = "Developer ID Application";
+				CODE_SIGN_STYLE = Manual;
+				PROVISIONING_PROFILE_SPECIFIER = "BaoLianDeng macOS Developer ID";
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 7;
 				ENABLE_HARDENED_RUNTIME = YES;
