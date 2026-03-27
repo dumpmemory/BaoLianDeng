@@ -35,15 +35,33 @@ final class VPNManager: NSObject, ObservableObject {
 
     private override init() {
         super.init()
+        sysextLog("init — calling activateSystemExtension")
         activateSystemExtension()
+    }
+
+    private func sysextLog(_ msg: String) {
+        let line = "[\(ISO8601DateFormatter().string(from: Date()))] \(msg)\n"
+        let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let path = dir.appendingPathComponent("sysext.log").path
+        if let data = line.data(using: .utf8) {
+            if let handle = FileHandle(forWritingAtPath: path) {
+                handle.seekToEndOfFile()
+                handle.write(data)
+                handle.closeFile()
+            } else {
+                FileManager.default.createFile(atPath: path, contents: data)
+            }
+        }
     }
 
     // MARK: - System Extension Activation
 
     func activateSystemExtension() {
-        dbg("activateSystemExtension: requesting \(AppConstants.tunnelBundleIdentifier)")
+        let id = AppConstants.tunnelBundleIdentifier
+        NSLog("[VPN] activateSystemExtension: %@", id)
         let request = OSSystemExtensionRequest.activationRequest(
-            forExtensionWithIdentifier: AppConstants.tunnelBundleIdentifier,
+            forExtensionWithIdentifier: id,
             queue: .main
         )
         request.delegate = self
@@ -414,7 +432,7 @@ final class VPNManager: NSObject, ObservableObject {
 
 extension VPNManager: OSSystemExtensionRequestDelegate {
     func request(_ request: OSSystemExtensionRequest, didFinishWithResult result: OSSystemExtensionRequest.Result) {
-        dbg("sysext didFinish: \(result.rawValue)")
+        sysextLog("didFinish: result=\(result.rawValue)")
         switch result {
         case .completed:
             extensionInstalled = true
@@ -422,34 +440,29 @@ extension VPNManager: OSSystemExtensionRequestDelegate {
         case .willCompleteAfterReboot:
             errorMessage = "System extension will activate after reboot"
         @unknown default:
-            dbg("sysext unknown result: \(result.rawValue)")
             loadManager()
         }
     }
 
     func request(_ request: OSSystemExtensionRequest, didFailWithError error: Error) {
-        dbg("sysext didFail: \(error.localizedDescription)")
-        // If already installed, OSSystemExtensionError.requestSuperseded — proceed anyway
         let nsError = error as NSError
-        if nsError.domain == "OSSystemExtensionErrorDomain" {
-            // Code 4 = requestSuperseded (same version already active)
-            dbg("sysext error code=\(nsError.code), proceeding with loadManager")
-            extensionInstalled = true
-            loadManager()
-        } else {
-            errorMessage = "System extension error: \(error.localizedDescription)"
+        sysextLog("didFail: \(error.localizedDescription) domain=\(nsError.domain) code=\(nsError.code)")
+        DispatchQueue.main.async {
+            self.errorMessage = "Sysext error \(nsError.code): \(error.localizedDescription)"
         }
+        // Proceed with loadManager anyway — the old VPN config may still work
+        loadManager()
     }
 
     func requestNeedsUserApproval(_ request: OSSystemExtensionRequest) {
-        dbg("sysext needsUserApproval — user must allow in System Settings")
+        sysextLog("needsUserApproval")
         errorMessage = "Allow the system extension in System Settings → Privacy & Security"
     }
 
     func request(_ request: OSSystemExtensionRequest,
                  actionForReplacingExtension existing: OSSystemExtensionProperties,
                  withExtension ext: OSSystemExtensionProperties) -> OSSystemExtensionRequest.ReplacementAction {
-        dbg("sysext replacing \(existing.bundleShortVersion) with \(ext.bundleShortVersion)")
+        sysextLog("replacing \(existing.bundleShortVersion) with \(ext.bundleShortVersion)")
         return .replace
     }
 }

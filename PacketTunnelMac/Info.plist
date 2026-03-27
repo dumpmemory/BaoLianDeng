@@ -26,5 +26,7 @@
 			<string>$(PRODUCT_MODULE_NAME).PacketTunnelProvider</string>
 		</dict>
 	</dict>
+	<key>NSSystemExtensionUsageDescription</key>
+	<string>BaoLianDeng needs this extension to create a VPN tunnel.</string>
 </dict>
 </plist>
