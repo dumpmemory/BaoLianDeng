@@ -21,6 +21,9 @@ Framework/MihomoCore.xcframework/
 # Rust build artifacts
 Rust/mihomo-ffi/target/
 
+# Release artifacts
+*.dmg
+
 # macOS
 .DS_Store
 *.swp
