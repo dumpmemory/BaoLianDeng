@@ -25,7 +25,7 @@ RUSTFLAGS_MACOS = -C strip=symbols
 # macOS SDK path
 MACOS_SDK = $(shell xcrun --sdk macosx --show-sdk-path)
 
-.PHONY: all framework framework-macos clean
+.PHONY: all framework framework-macos clean e2e-test e2e-setup
 
 all: framework
 
@@ -67,3 +67,9 @@ clean:
 	rm -rf $(FRAMEWORK_DIR)/$(FRAMEWORK_NAME).xcframework
 	rm -rf $(BUILD_DIR)
 	cd $(RUST_FFI_DIR) && cargo clean
+
+e2e-setup:
+	./tests/e2e/vm-setup.sh
+
+e2e-test:
+	./tests/e2e/run-e2e.sh
