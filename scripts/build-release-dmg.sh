@@ -100,19 +100,65 @@ rm -f "$APP_ZIP"
 
 echo "=== Step 5: Create DMG ==="
 rm -rf "$DMG_DIR" "$DMG_PATH"
+RW_DMG="/tmp/${DMG_NAME}-rw.dmg"
+rm -f "$RW_DMG"
 mkdir -p "$DMG_DIR"
 
 cp -R "$APP_PATH" "$DMG_DIR/"
 ln -s /Applications "$DMG_DIR/Applications"
 
+# Create a read-write DMG first so we can customize the Finder window
 hdiutil create \
   -volname "$APP_NAME" \
   -srcfolder "$DMG_DIR" \
   -ov \
-  -format UDZO \
-  "$DMG_PATH"
+  -format UDRW \
+  "$RW_DMG"
 
 rm -rf "$DMG_DIR"
+
+# Mount the read-write DMG and configure Finder layout
+MOUNT_POINT=$(hdiutil attach -readwrite -noverify "$RW_DMG" | grep "/Volumes/" | tail -1 | awk -F'\t' '{print $NF}')
+echo "Mounted at: $MOUNT_POINT"
+
+# Set Finder window appearance: icon size, background, icon positions
+osascript <<APPLESCRIPT
+tell application "Finder"
+    tell disk "$APP_NAME"
+        open
+        set current view of container window to icon view
+        set toolbar visible of container window to false
+        set statusbar visible of container window to false
+        set the bounds of container window to {100, 100, 640, 400}
+        set viewOptions to the icon view options of container window
+        set arrangement of viewOptions to not arranged
+        set icon size of viewOptions to 128
+        set background color of viewOptions to {65535, 65535, 65535}
+        set position of item "${APP_NAME}.app" of container window to {120, 150}
+        set position of item "Applications" of container window to {420, 150}
+        close
+        open
+        update without registering applications
+        delay 1
+        close
+    end tell
+end tell
+APPLESCRIPT
+
+# Set custom volume icon from the app icon
+cp "${MOUNT_POINT}/${APP_NAME}.app/Contents/Resources/AppIcon.icns" "${MOUNT_POINT}/.VolumeIcon.icns" 2>/dev/null || true
+SetFile -c icnC "${MOUNT_POINT}/.VolumeIcon.icns" 2>/dev/null || true
+SetFile -a C "${MOUNT_POINT}" 2>/dev/null || true
+
+# Hide background files
+chflags hidden "${MOUNT_POINT}/.VolumeIcon.icns" 2>/dev/null || true
+
+sync
+hdiutil detach "$MOUNT_POINT"
+
+# Convert to compressed read-only DMG
+hdiutil convert "$RW_DMG" -format UDZO -imagekey zlib-level=9 -o "$DMG_PATH"
+rm -f "$RW_DMG"
 
 IDENTITY=$(security find-identity -v -p codesigning | grep "Developer ID Application" | head -1 | awk -F'"' '{print $2}')
 codesign --sign "$IDENTITY" --timestamp "$DMG_PATH"
