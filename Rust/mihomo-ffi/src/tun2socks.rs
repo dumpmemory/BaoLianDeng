@@ -1,39 +1,50 @@
-//! smoltcp-based tun2socks: reads raw IP packets from the macOS utun fd.
-//! TCP packets are processed by smoltcp for reassembly, then forwarded via
+//! lwIP-based tun2socks: reads raw IP packets from the macOS utun fd.
+//! TCP packets are processed by lwIP for reassembly, then forwarded via
 //! SOCKS5 to the local mihomo mixed listener. UDP packets (DNS) are parsed
 //! directly from the IP header and forwarded via DoH.
 
 use crate::dns_table;
 use crate::doh_client;
 use crate::logging;
-use std::collections::{HashMap, HashSet};
+use crate::lwip_ffi;
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::io;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr, SocketAddrV4};
 use std::os::raw::c_void;
-use std::os::unix::io::{AsRawFd, RawFd};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::os::unix::io::RawFd;
+use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
 use std::time::Instant;
-use tokio::io::unix::AsyncFd;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 use tokio::sync::mpsc;
 use tracing::{debug, info};
 
-use smoltcp::iface::{Config, Interface, Route, SocketHandle, SocketSet};
-use smoltcp::phy::{self, Device, DeviceCapabilities, Medium};
-use smoltcp::socket::tcp as smol_tcp;
-use smoltcp::time::{Duration as SmolDuration, Instant as SmolInstant};
-use smoltcp::wire::{HardwareAddress, IpAddress, IpCidr, IpListenEndpoint};
-
 // ---------------------------------------------------------------------------
-// AsyncFd wrapper for raw TUN file descriptor
+// Wake pipe for signaling the packet loop from tokio tasks
 // ---------------------------------------------------------------------------
 
-struct TunFd(RawFd);
+static WAKE_PIPE_WRITE: AtomicI32 = AtomicI32::new(-1);
 
-impl AsRawFd for TunFd {
-    fn as_raw_fd(&self) -> RawFd {
-        self.0
+fn wake_packet_loop() {
+    let fd = WAKE_PIPE_WRITE.load(Ordering::Relaxed);
+    if fd >= 0 {
+        unsafe {
+            libc::write(fd, b"w".as_ptr() as *const c_void, 1);
+        }
+    }
+}
+
+/// Sender wrapper that wakes the packet loop after each send.
+#[derive(Clone)]
+struct WakingSender {
+    inner: mpsc::UnboundedSender<SocksEvent>,
+}
+
+impl WakingSender {
+    fn send(&self, event: SocksEvent) -> Result<(), mpsc::error::SendError<SocksEvent>> {
+        let result = self.inner.send(event);
+        wake_packet_loop();
+        result
     }
 }
 
@@ -57,22 +68,47 @@ pub fn start(fd: i32, socks_port: u16, _dns_port: u16) -> Result<(), String> {
 
     let rt = crate::get_runtime();
 
+    // Create wake pipe for signaling the packet loop from tokio tasks
+    let mut pipe_fds = [0i32; 2];
+    if unsafe { libc::pipe(pipe_fds.as_mut_ptr()) } != 0 {
+        return Err("failed to create wake pipe".into());
+    }
+    let wake_read_fd = pipe_fds[0];
+    let wake_write_fd = pipe_fds[1];
+
+    // Set wake pipe read end to non-blocking
+    unsafe {
+        let flags = libc::fcntl(wake_read_fd, libc::F_GETFL);
+        libc::fcntl(wake_read_fd, libc::F_SETFL, flags | libc::O_NONBLOCK);
+        let flags = libc::fcntl(wake_write_fd, libc::F_GETFL);
+        libc::fcntl(wake_write_fd, libc::F_SETFL, flags | libc::O_NONBLOCK);
+    }
+    WAKE_PIPE_WRITE.store(wake_write_fd, Ordering::Relaxed);
+
     // Channels between packet thread and tokio
     let (tun_tx, tun_rx) = mpsc::unbounded_channel::<TunEvent>();
     let (socks_tx, socks_rx) = mpsc::unbounded_channel::<SocksEvent>();
 
+    // Wrap socks_tx in WakingSender so tokio tasks wake the packet loop
+    let waking_socks_tx = WakingSender { inner: socks_tx };
+
     // Spawn the tokio side (handles SOCKS5 connections and DoH DNS resolution)
     let socks_addr2 = SocketAddr::V4(socks_addr);
     rt.spawn(async move {
-        tokio_handler(tun_rx, socks_tx, socks_addr2).await;
+        tokio_handler(tun_rx, waking_socks_tx, socks_addr2).await;
     });
 
-    // Spawn the packet processing loop on tokio (uses AsyncFd for TUN fd)
-    rt.spawn(async move {
-        if let Err(e) = packet_loop(fd, tun_tx, socks_rx).await {
+    // Spawn the packet processing loop on a dedicated OS thread (uses select())
+    std::thread::spawn(move || {
+        if let Err(e) = packet_loop(fd, tun_tx, socks_rx, wake_read_fd) {
             logging::bridge_log(&format!("packet_loop error: {}", e));
         }
         TUN2SOCKS_RUNNING.store(false, Ordering::SeqCst);
+        WAKE_PIPE_WRITE.store(-1, Ordering::Relaxed);
+        unsafe {
+            libc::close(wake_read_fd);
+            libc::close(wake_write_fd);
+        }
         info!("tun2socks packet loop exited");
     });
 
@@ -127,178 +163,250 @@ enum SocksEvent {
 }
 
 // ---------------------------------------------------------------------------
-// smoltcp TUN Device
+// lwIP callback state (single-threaded, accessed only from packet_loop)
 // ---------------------------------------------------------------------------
 
-use std::collections::VecDeque;
+/// Per-connection state tracked by the packet loop.
+struct LwipConnState {
+    pcb: *mut lwip_ffi::tcp_pcb,
+}
 
-struct TunDevice {
-    rx_queue: VecDeque<Vec<u8>>,
+/// Global state passed to lwIP callbacks via static mutable pointer.
+/// SAFETY: only accessed from the dedicated packet_loop thread (never concurrent).
+struct LwipState {
+    tun_tx: mpsc::UnboundedSender<TunEvent>,
+    next_conn_id: u64,
+    conns: HashMap<u64, LwipConnState>,
     tx_queue: VecDeque<Vec<u8>>,
-    mtu: usize,
 }
 
-impl TunDevice {
-    fn new(mtu: usize) -> Self {
-        Self {
-            rx_queue: VecDeque::new(),
-            tx_queue: VecDeque::new(),
-            mtu,
-        }
+/// Static pointer to the LwipState. Set before entering the main loop,
+/// cleared on exit. SAFETY: only one packet_loop runs at a time.
+static mut LWIP_STATE: *mut LwipState = std::ptr::null_mut();
+
+// ---------------------------------------------------------------------------
+// lwIP callbacks (unsafe extern "C")
+// ---------------------------------------------------------------------------
+
+/// Called by lwIP when it has an IP packet to send out the netif (e.g. SYN-ACK, data ACK).
+unsafe extern "C" fn netif_output_cb(
+    _netif: *mut lwip_ffi::netif,
+    p: *mut lwip_ffi::pbuf,
+    _ipaddr: *const lwip_ffi::ip4_addr_t,
+) -> lwip_ffi::err_t {
+    if p.is_null() {
+        return lwip_ffi::ERR_OK;
     }
+    let state = &mut *LWIP_STATE;
+    // Copy pbuf chain payload into a Vec
+    let tot_len = lwip_ffi::pbuf_tot_len(p) as usize;
+    let mut data = Vec::with_capacity(tot_len);
+    let mut cur = p;
+    while !cur.is_null() {
+        let payload = lwip_ffi::pbuf_payload(cur);
+        let len = lwip_ffi::pbuf_len(cur) as usize;
+        data.extend_from_slice(std::slice::from_raw_parts(payload, len));
+        // next pointer is at offset 0 of pbuf
+        cur = *(cur as *const *mut lwip_ffi::pbuf);
+    }
+    state.tx_queue.push_back(data);
+    lwip_ffi::ERR_OK
 }
 
-impl Device for TunDevice {
-    type RxToken<'a> = TunRxToken;
-    type TxToken<'a> = TunTxToken<'a>;
-
-    fn receive(&mut self, _timestamp: SmolInstant) -> Option<(Self::RxToken<'_>, Self::TxToken<'_>)> {
-        if let Some(pkt) = self.rx_queue.pop_front() {
-            Some((
-                TunRxToken(pkt),
-                TunTxToken(&mut self.tx_queue),
-            ))
-        } else {
-            None
-        }
+/// Called by lwIP when a new TCP connection is accepted by the catch-all listener.
+unsafe extern "C" fn tcp_accept_cb(
+    _arg: *mut c_void,
+    newpcb: *mut lwip_ffi::tcp_pcb,
+    _err: lwip_ffi::err_t,
+) -> lwip_ffi::err_t {
+    if newpcb.is_null() {
+        return lwip_ffi::ERR_MEM;
     }
+    let state = &mut *LWIP_STATE;
 
-    fn transmit(&mut self, _timestamp: SmolInstant) -> Option<Self::TxToken<'_>> {
-        Some(TunTxToken(&mut self.tx_queue))
-    }
+    let conn_id = state.next_conn_id;
+    state.next_conn_id += 1;
 
-    fn capabilities(&self) -> DeviceCapabilities {
-        let mut caps = DeviceCapabilities::default();
-        caps.medium = Medium::Ip;
-        caps.max_transmission_unit = self.mtu;
-        // Generate checksums on TX (kernel checks them), skip verify on RX
-        // (utun inbound packets have zero/dummy checksums from hardware offload)
-        caps.checksum = smoltcp::phy::ChecksumCapabilities::default();
-        caps.checksum.ipv4 = smoltcp::phy::Checksum::Tx;
-        caps.checksum.tcp = smoltcp::phy::Checksum::Tx;
-        caps.checksum.udp = smoltcp::phy::Checksum::Tx;
-        caps
-    }
+    let dst_ip = lwip_ffi::lwip_helper_tcp_remote_ip(newpcb);
+    let dst_port = lwip_ffi::lwip_helper_tcp_remote_port(newpcb);
+
+    // Store conn_id in the PCB's arg
+    lwip_ffi::tcp_arg(newpcb, conn_id as *mut c_void);
+    lwip_ffi::tcp_recv(newpcb, Some(tcp_recv_cb));
+    lwip_ffi::tcp_sent(newpcb, Some(tcp_sent_cb));
+    lwip_ffi::tcp_err(newpcb, Some(tcp_err_cb));
+
+    state.conns.insert(conn_id, LwipConnState { pcb: newpcb });
+
+    let dst = Ipv4Addr::from(dst_ip.to_ne_bytes());
+    logging::bridge_log(&format!(
+        "TCP Accepted: conn_id={} dst={}:{}", conn_id, dst, dst_port
+    ));
+
+    let _ = state.tun_tx.send(TunEvent::TcpAccepted {
+        conn_id,
+        dst_ip,
+        dst_port,
+    });
+
+    lwip_ffi::ERR_OK
 }
 
-struct TunRxToken(Vec<u8>);
+/// Called by lwIP when data is received on a TCP connection.
+unsafe extern "C" fn tcp_recv_cb(
+    arg: *mut c_void,
+    tpcb: *mut lwip_ffi::tcp_pcb,
+    p: *mut lwip_ffi::pbuf,
+    _err: lwip_ffi::err_t,
+) -> lwip_ffi::err_t {
+    let conn_id = arg as u64;
+    let state = &mut *LWIP_STATE;
 
-impl phy::RxToken for TunRxToken {
-    fn consume<R, F>(self, f: F) -> R
-    where
-        F: FnOnce(&[u8]) -> R,
-    {
-        f(&self.0)
+    if p.is_null() {
+        // Remote closed the connection
+        logging::bridge_log(&format!("TCP remote closed: conn_id={}", conn_id));
+        let _ = state.tun_tx.send(TunEvent::TcpClosed { conn_id });
+        state.conns.remove(&conn_id);
+        lwip_ffi::tcp_close(tpcb);
+        return lwip_ffi::ERR_OK;
     }
+
+    // Copy data from pbuf chain
+    let tot_len = lwip_ffi::pbuf_tot_len(p) as usize;
+    let mut data = Vec::with_capacity(tot_len);
+    let mut cur = p;
+    while !cur.is_null() {
+        let payload = lwip_ffi::pbuf_payload(cur);
+        let len = lwip_ffi::pbuf_len(cur) as usize;
+        data.extend_from_slice(std::slice::from_raw_parts(payload, len));
+        cur = *(cur as *const *mut lwip_ffi::pbuf);
+    }
+
+    // Acknowledge received data to lwIP
+    lwip_ffi::tcp_recved(tpcb, tot_len as u16);
+
+    logging::bridge_log(&format!(
+        "TCP recv: conn_id={} {}B", conn_id, data.len()
+    ));
+
+    let _ = state.tun_tx.send(TunEvent::TcpData { conn_id, data });
+
+    // Free the pbuf
+    lwip_ffi::pbuf_free(p);
+
+    lwip_ffi::ERR_OK
 }
 
-struct TunTxToken<'a>(&'a mut VecDeque<Vec<u8>>);
+/// Called by lwIP when previously written data has been acknowledged.
+unsafe extern "C" fn tcp_sent_cb(
+    _arg: *mut c_void,
+    _tpcb: *mut lwip_ffi::tcp_pcb,
+    _len: u16,
+) -> lwip_ffi::err_t {
+    lwip_ffi::ERR_OK
+}
 
-impl<'a> phy::TxToken for TunTxToken<'a> {
-    fn consume<R, F>(self, len: usize, f: F) -> R
-    where
-        F: FnOnce(&mut [u8]) -> R,
-    {
-        let mut buf = vec![0u8; len];
-        let result = f(&mut buf);
-        self.0.push_back(buf);
-        result
-    }
+/// Called by lwIP when a TCP connection encounters an error.
+/// IMPORTANT: lwIP has already freed the PCB by the time this is called.
+unsafe extern "C" fn tcp_err_cb(arg: *mut c_void, _err: lwip_ffi::err_t) {
+    let conn_id = arg as u64;
+    let state = &mut *LWIP_STATE;
+
+    logging::bridge_log(&format!("TCP error: conn_id={}", conn_id));
+    state.conns.remove(&conn_id);
+    let _ = state.tun_tx.send(TunEvent::TcpClosed { conn_id });
 }
 
 // ---------------------------------------------------------------------------
-// Connection tracking
+// Packet loop (lwIP + select())
 // ---------------------------------------------------------------------------
 
-const MAX_SOCKETS: usize = 256;
-const SOCKET_RX_BUF: usize = 65535;
-const SOCKET_TX_BUF: usize = 262144; // 256KB — needed for high-throughput downloads
-
-#[derive(Clone, Copy, PartialEq, Debug)]
-enum ConnState {
-    Free,
-    Listening,
-    Established,
-}
-
-struct ConnInfo {
-    handle: SocketHandle,
-    conn_id: u64,
-    dst_ip: u32,
-    dst_port: u16,
-    state: ConnState,
-    /// Instant when the socket entered its current state (for timeout-based reaping)
-    state_since: Instant,
-    /// Pending data from SOCKS5 that couldn't be written to smoltcp yet (backpressure buffer)
-    pending_write: Vec<u8>,
-}
-
-/// How long a Listening socket can wait for a SYN match before being recycled.
-const LISTEN_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
-/// How long an Established socket can sit in a closing TCP state before being reaped.
-const CLOSE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
-/// Max pending write buffer per connection (4 MB) — prevents OOM under sustained backpressure.
-const MAX_PENDING_WRITE: usize = 4 * 1024 * 1024;
-
-// ---------------------------------------------------------------------------
-// Packet thread (replaces lwip_thread)
-// ---------------------------------------------------------------------------
-
-async fn packet_loop(
+fn packet_loop(
     fd: RawFd,
     tun_tx: mpsc::UnboundedSender<TunEvent>,
     mut socks_rx: mpsc::UnboundedReceiver<SocksEvent>,
+    wake_read_fd: RawFd,
 ) -> io::Result<()> {
-    logging::bridge_log("packet_loop: starting (smoltcp + AsyncFd)");
+    logging::bridge_log("packet_loop: starting (lwIP + select())");
 
-    // Create smoltcp device and interface
-    let mut device = TunDevice::new(1500);
-    let config = Config::new(HardwareAddress::Ip);
-    let mut iface = Interface::new(config, &mut device, SmolInstant::from_millis(0));
+    // Initialize lwIP
+    unsafe { lwip_ffi::lwip_init(); }
 
-    // Set interface IP and enable any_ip so smoltcp accepts packets
-    // to ALL destination IPs (required for transparent proxy / tun2socks)
-    iface.update_ip_addrs(|addrs| {
-        addrs.push(IpCidr::new(IpAddress::v4(10, 0, 0, 1), 0)).unwrap();
-    });
-    iface.set_any_ip(true);
-    // Add default route via our own IP — required for any_ip to accept packets
-    iface.routes_mut().add_default_ipv4_route(smoltcp::wire::Ipv4Address::new(10, 0, 0, 1)).unwrap();
-
-    // Pre-allocate socket pool
-    let mut sockets = SocketSet::new(vec![]);
-    let mut conns: Vec<ConnInfo> = Vec::with_capacity(MAX_SOCKETS);
-    let mut next_conn_id: u64 = 1;
-
-    for _ in 0..MAX_SOCKETS {
-        let rx_buf = smol_tcp::SocketBuffer::new(vec![0u8; SOCKET_RX_BUF]);
-        let tx_buf = smol_tcp::SocketBuffer::new(vec![0u8; SOCKET_TX_BUF]);
-        let mut socket = smol_tcp::Socket::new(rx_buf, tx_buf);
-        socket.set_keep_alive(Some(SmolDuration::from_secs(30)));
-        let handle = sockets.add(socket);
-        conns.push(ConnInfo {
-            handle,
-            conn_id: 0,
-            state_since: Instant::now(),
-            pending_write: Vec::new(),
-            dst_ip: 0,
-            dst_port: 0,
-            state: ConnState::Free,
-        });
+    // Allocate and configure netif
+    let netif = unsafe { lwip_ffi::lwip_helper_netif_alloc() };
+    if netif.is_null() {
+        return Err(io::Error::new(io::ErrorKind::Other, "failed to allocate netif"));
     }
 
-    logging::bridge_log(&format!("packet_loop: {} sockets allocated", MAX_SOCKETS));
+    // IP 10.0.0.1, netmask 0.0.0.0 (accept everything)
+    let ip: lwip_ffi::ip4_addr_t = u32::from(Ipv4Addr::new(10, 0, 0, 1)).to_be();
+    let netmask: lwip_ffi::ip4_addr_t = 0;
+    let gw: lwip_ffi::ip4_addr_t = 0;
 
-    // Set fd to non-blocking and wrap in AsyncFd
-    use nix::fcntl::{fcntl, FcntlArg, OFlag};
-    let flags = fcntl(fd, FcntlArg::F_GETFL)
-        .map_err(|_| io::Error::last_os_error())?;
-    let mut new_flags = OFlag::from_bits_truncate(flags);
-    new_flags.insert(OFlag::O_NONBLOCK);
-    fcntl(fd, FcntlArg::F_SETFL(new_flags))
-        .map_err(|_| io::Error::last_os_error())?;
+    unsafe {
+        // netif_add with ip_input as the input function
+        let result = lwip_ffi::netif_add(
+            netif,
+            &ip as *const u32,
+            &netmask as *const u32,
+            &gw as *const u32,
+            std::ptr::null_mut(),
+            None, // init callback not needed — we use the helper
+            Some(lwip_ffi::ip_input),
+        );
+        if result.is_null() {
+            lwip_ffi::lwip_helper_netif_free(netif);
+            return Err(io::Error::new(io::ErrorKind::Other, "netif_add failed"));
+        }
 
-    let async_fd = AsyncFd::new(TunFd(fd))?;
+        lwip_ffi::netif_set_default(netif);
+        lwip_ffi::netif_set_up(netif);
+        lwip_ffi::netif_set_link_up(netif);
+        lwip_ffi::lwip_helper_set_netif_output(netif, Some(netif_output_cb));
+    }
+
+    logging::bridge_log("packet_loop: netif configured");
+
+    // Create catch-all TCP listener
+    unsafe {
+        let listen_pcb = lwip_ffi::tcp_new();
+        if listen_pcb.is_null() {
+            lwip_ffi::lwip_helper_netif_free(netif);
+            return Err(io::Error::new(io::ErrorKind::Other, "tcp_new failed"));
+        }
+        let any_ip: lwip_ffi::ip4_addr_t = 0; // IP_ADDR_ANY
+        let err = lwip_ffi::tcp_bind(listen_pcb, &any_ip, 0);
+        if err != lwip_ffi::ERR_OK {
+            lwip_ffi::lwip_helper_netif_free(netif);
+            return Err(io::Error::new(io::ErrorKind::Other, format!("tcp_bind failed: {}", err)));
+        }
+        let listen_pcb = lwip_ffi::tcp_listen_with_backlog(listen_pcb, 255);
+        if listen_pcb.is_null() {
+            lwip_ffi::lwip_helper_netif_free(netif);
+            return Err(io::Error::new(io::ErrorKind::Other, "tcp_listen failed"));
+        }
+        lwip_ffi::lwip_helper_set_listen_catchall(listen_pcb);
+        lwip_ffi::tcp_accept(listen_pcb, Some(tcp_accept_cb));
+    }
+
+    logging::bridge_log("packet_loop: catch-all TCP listener created");
+
+    // Initialize global state for callbacks
+    let mut lwip_state = LwipState {
+        tun_tx: tun_tx.clone(),
+        next_conn_id: 1,
+        conns: HashMap::new(),
+        tx_queue: VecDeque::new(),
+    };
+    unsafe {
+        LWIP_STATE = &mut lwip_state as *mut LwipState;
+    }
+
+    // Set TUN fd to non-blocking
+    unsafe {
+        let flags = libc::fcntl(fd, libc::F_GETFL);
+        libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK);
+    }
 
     logging::bridge_log("packet_loop: entering main loop");
 
@@ -306,361 +414,159 @@ async fn packet_loop(
     let mut pkt_total: u64 = 0;
     let mut pkt_udp: u64 = 0;
     let mut pkt_tcp: u64 = 0;
-    let mut pkt_other: u64 = 0;
+    let mut _pkt_other: u64 = 0;
     let mut read_errors: u64 = 0;
-    let mut active_conns: u64;
     let mut tx_pkt_count: u64 = 0;
     let mut tx_byte_count: u64 = 0;
     let mut socks_data_recv: u64 = 0;
     let mut socks_data_sent: u64 = 0;
     let mut socks_data_dropped: u64 = 0;
     let mut last_stats = Instant::now();
-    let start_time = Instant::now();
     // Track recycled conn_ids so we silently skip stale SocksEvent data
     let mut dead_conns: HashSet<u64> = HashSet::new();
 
-    // Main loop — wait for fd readable or SOCKS events via tokio::select!
+    // Main loop — wait for fd readable or wake pipe via select()
     loop {
         if !TUN2SOCKS_RUNNING.load(Ordering::SeqCst) {
             break;
         }
 
-        // Wait for either: fd has data to read, or SOCKS event arrives
-        let mut got_socks_event: Option<SocksEvent> = None;
-        tokio::select! {
-            readable = async_fd.readable() => {
-                let mut guard = readable?;
-                // Read all available packets
-                loop {
-                    match guard.try_io(|inner| {
-                        let n = unsafe {
-                            libc::read(
-                                inner.get_ref().as_raw_fd(),
-                                read_buf.as_mut_ptr() as *mut c_void,
-                                read_buf.len(),
-                            )
-                        };
-                        if n < 0 {
-                            Err(io::Error::last_os_error())
-                        } else {
-                            Ok(n as usize)
-                        }
-                    }) {
-                        Ok(Ok(0)) => break,
-                        Ok(Ok(n)) => {
-                            pkt_total += 1;
-                            // Strip 4-byte utun header
-                            if n <= 4 {
-                                continue;
-                            }
-                            let ip_data = &read_buf[4..n];
+        // Build fd_set for select()
+        unsafe {
+            let mut read_fds: libc::fd_set = std::mem::zeroed();
+            libc::FD_ZERO(&mut read_fds);
+            libc::FD_SET(fd, &mut read_fds);
+            libc::FD_SET(wake_read_fd, &mut read_fds);
+            let nfds = std::cmp::max(fd, wake_read_fd) + 1;
 
-                            // Log first few packets
-                            if pkt_total <= 5 {
-                                let version = if !ip_data.is_empty() { ip_data[0] >> 4 } else { 0 };
-                                let proto = if ip_data.len() > 9 { ip_data[9] } else { 0 };
-                                logging::bridge_log(&format!(
-                                    "packet_loop: pkt #{}: {}B, ip_ver={}, proto={}",
-                                    pkt_total, n, version, proto
-                                ));
-                            }
+            // 50ms timeout for lwIP timers
+            let mut timeout = libc::timeval { tv_sec: 0, tv_usec: 50_000 };
 
-                            // Intercept UDP before smoltcp
-                            if let Some((src_ip, src_port, dst_ip, dst_port, payload)) =
-                                parse_udp_packet(ip_data)
-                            {
-                                pkt_udp += 1;
-                                if pkt_udp <= 3 {
-                                    let dst = Ipv4Addr::from(dst_ip.to_ne_bytes());
-                                    logging::bridge_log(&format!(
-                                        "packet_loop: UDP -> {}:{} ({}B)",
-                                        dst, dst_port, payload.len()
-                                    ));
-                                }
-                                let _ = tun_tx.send(TunEvent::UdpPacket {
-                                    src_ip,
-                                    src_port,
-                                    dst_ip,
-                                    dst_port,
-                                    data: payload.to_vec(),
-                                });
-                            } else {
-                                // Check if TCP for stats
-                                if ip_data.len() > 9 && ip_data[9] == 6 {
-                                    pkt_tcp += 1;
-                                } else {
-                                    pkt_other += 1;
-                                }
-                                // Queue for smoltcp
-                                device.rx_queue.push_back(ip_data.to_vec());
-                            }
-                        }
-                        Ok(Err(e)) => {
-                            read_errors += 1;
-                            if read_errors <= 5 {
-                                logging::bridge_log(&format!(
-                                    "packet_loop: read error: {}", e
-                                ));
-                            }
-                            break;
-                        }
-                        Err(_would_block) => {
-                            // No more data available right now
-                            break;
-                        }
-                    }
-                }
-                guard.clear_ready();
-            }
-            event = socks_rx.recv() => {
-                match event {
-                    Some(e) => { got_socks_event = Some(e); }
-                    None => break, // channel closed
-                }
-            }
-        }
-
-        let now_millis = start_time.elapsed().as_millis() as i64;
-        let smol_now = SmolInstant::from_millis(now_millis);
-
-        // 2. Pre-inspect SYN packets and set up listening sockets
-        let mut syns_found = 0u64;
-        let mut listens_set = 0u64;
-        for pkt in &device.rx_queue {
-            if let Some((dst_ip, dst_port)) = parse_tcp_syn(pkt) {
-                syns_found += 1;
-                if syns_found <= 3 {
-                    let dst = Ipv4Addr::from(dst_ip.to_ne_bytes());
-                    logging::bridge_log(&format!(
-                        "SYN detected: {}:{}", dst, dst_port
-                    ));
-                }
-                // Skip if we already have an actively connected socket for this exact SYN
-                // (SYN retransmit — let smoltcp handle it with the existing socket).
-                // Sockets in TCP closing states (CloseWait, FinWait, TimeWait, etc.)
-                // are NOT considered active — allow new connections to the same dst.
-                let already_handled = conns.iter().any(|c| {
-                    c.dst_ip == dst_ip && c.dst_port == dst_port
-                        && (c.state == ConnState::Listening
-                            || (c.state == ConnState::Established && {
-                                let s = sockets.get::<smol_tcp::Socket>(c.handle);
-                                matches!(
-                                    s.state(),
-                                    smol_tcp::State::Established
-                                        | smol_tcp::State::SynReceived
-                                        | smol_tcp::State::SynSent
-                                )
-                            }))
-                });
-                if already_handled {
-                    continue;
-                }
-                // Recycle any old sockets for the same dst that are in closing states
-                for ci in conns.iter_mut().filter(|c| {
-                    c.dst_ip == dst_ip && c.dst_port == dst_port
-                        && c.state == ConnState::Established
-                }) {
-                    let s = sockets.get_mut::<smol_tcp::Socket>(ci.handle);
-                    if !matches!(
-                        s.state(),
-                        smol_tcp::State::Established
-                            | smol_tcp::State::SynReceived
-                            | smol_tcp::State::SynSent
-                    ) {
-                        let _ = tun_tx.send(TunEvent::TcpClosed {
-                            conn_id: ci.conn_id,
-                        });
-                        dead_conns.insert(ci.conn_id);
-                        s.abort();
-                        ci.state = ConnState::Free;
-                        ci.state_since = Instant::now();
-                        ci.conn_id = 0;
-                        ci.dst_ip = 0;
-                        ci.dst_port = 0;
-                        ci.pending_write.clear();
-                    }
-                }
-                // Find a free socket and listen on dst_port
-                if let Some(ci) = conns.iter_mut().find(|c| c.state == ConnState::Free) {
-                    let socket = sockets.get_mut::<smol_tcp::Socket>(ci.handle);
-                    // Listen on any IP, specific port
-                    match socket.listen(IpListenEndpoint {
-                        addr: None,
-                        port: dst_port,
-                    }) {
-                        Ok(()) => {
-                            ci.conn_id = next_conn_id;
-                            next_conn_id += 1;
-                            ci.dst_ip = dst_ip;
-                            ci.dst_port = dst_port;
-                            ci.state = ConnState::Listening;
-                            ci.state_since = Instant::now();
-                            listens_set += 1;
-                            if listens_set <= 3 {
-                                logging::bridge_log(&format!(
-                                    "Socket listening on port {} (conn_id={})",
-                                    dst_port, ci.conn_id
-                                ));
-                            }
-                        }
-                        Err(e) => {
-                            if syns_found <= 3 {
-                                logging::bridge_log(&format!(
-                                    "listen failed for port {}: {:?}", dst_port, e
-                                ));
-                            }
-                        }
-                    }
-                } else if syns_found <= 3 {
-                    logging::bridge_log("No free sockets for SYN");
-                }
-            }
-        }
-
-        // 3. Poll smoltcp (may need multiple polls for SYN→SYN-ACK)
-        iface.poll(smol_now, &mut device, &mut sockets);
-        if syns_found > 0 && syns_found <= 3 {
-            // Log socket states for recently set-up listeners
-            for ci in conns.iter().filter(|c| c.state == ConnState::Listening) {
-                let socket = sockets.get::<smol_tcp::Socket>(ci.handle);
-                logging::bridge_log(&format!(
-                    "conn_id={} after poll: state={:?}, is_active={}, is_open={}, is_listening={}, tx_queue={}",
-                    ci.conn_id, socket.state(), socket.is_active(), socket.is_open(), socket.is_listening(),
-                    device.tx_queue.len()
-                ));
-            }
-        }
-
-        // 4. Process socket events
-        active_conns = 0;
-        for ci in conns.iter_mut() {
-            let socket = sockets.get_mut::<smol_tcp::Socket>(ci.handle);
-
-            match ci.state {
-                ConnState::Free => {}
-                ConnState::Listening => {
-                    match socket.state() {
-                        smol_tcp::State::Established => {
-                            // 3-way handshake complete
-                            ci.state = ConnState::Established;
-                            ci.state_since = Instant::now();
-                            active_conns += 1;
-                            let dst = Ipv4Addr::from(ci.dst_ip.to_ne_bytes());
-                            logging::bridge_log(&format!(
-                                "TCP Established: conn_id={} dst={}:{}",
-                                ci.conn_id, dst, ci.dst_port
-                            ));
-                            let _ = tun_tx.send(TunEvent::TcpAccepted {
-                                conn_id: ci.conn_id,
-                                dst_ip: ci.dst_ip,
-                                dst_port: ci.dst_port,
-                            });
-                        }
-                        smol_tcp::State::SynReceived => {
-                            // Handshake in progress — keep waiting
-                            active_conns += 1;
-                        }
-                        smol_tcp::State::Listen => {
-                            // Still listening, no SYN matched yet
-                        }
-                        _ => {
-                            // Closed, TimeWait, or other terminal state — recycle
-                            socket.abort();
-                            ci.state = ConnState::Free;
-                            ci.state_since = Instant::now();
-                            ci.conn_id = 0;
-                        }
-                    }
-                }
-                ConnState::Established => {
-                    let tcp_state = socket.state();
-                    if !socket.is_open()
-                        || matches!(
-                            tcp_state,
-                            smol_tcp::State::TimeWait
-                                | smol_tcp::State::LastAck
-                                | smol_tcp::State::Closing
-                        )
-                    {
-                        // Connection in terminal TCP state — recycle immediately
-                        // so the socket is available for new connections to the same dst
-                        let _ = tun_tx.send(TunEvent::TcpClosed {
-                            conn_id: ci.conn_id,
-                        });
-                        dead_conns.insert(ci.conn_id);
-                        socket.abort();
-                        ci.state = ConnState::Free;
-                        ci.state_since = Instant::now();
-                        ci.conn_id = 0;
-                        ci.dst_ip = 0;
-                        ci.dst_port = 0;
-                        ci.pending_write.clear();
-                        continue;
-                    }
-                    active_conns += 1;
-
-                    // Read data from socket
-                    if socket.may_recv() {
-                        let mut buf = vec![0u8; 32768];
-                        match socket.recv_slice(&mut buf) {
-                            Ok(n) if n > 0 => {
-                                buf.truncate(n);
-                                logging::bridge_log(&format!(
-                                    "TCP recv: conn_id={} {}B dst={}:{}",
-                                    ci.conn_id, n,
-                                    Ipv4Addr::from(ci.dst_ip.to_ne_bytes()), ci.dst_port
-                                ));
-                                let _ = tun_tx.send(TunEvent::TcpData {
-                                    conn_id: ci.conn_id,
-                                    data: buf,
-                                });
-                            }
-                            _ => {}
-                        }
-                    }
-                }
-            }
-        }
-
-        // 5. Drain pending writes from previous iterations (backpressure retry)
-        for ci in conns.iter_mut().filter(|c| c.state == ConnState::Established && !c.pending_write.is_empty()) {
-            let socket = sockets.get_mut::<smol_tcp::Socket>(ci.handle);
-            if socket.can_send() {
-                match socket.send_slice(&ci.pending_write) {
-                    Ok(n) => {
-                        socks_data_sent += n as u64;
-                        ci.pending_write.drain(..n);
-                    }
-                    Err(_) => {
-                        // Will retry next iteration
-                    }
-                }
-            }
-        }
-
-        // 6. Process events from tokio (SOCKS5 responses)
-        // First handle any event captured by select!, then drain remaining
-        if let Some(event) = got_socks_event {
-            process_socks_event(
-                event, fd, &mut conns, &mut sockets,
-                &mut socks_data_recv, &mut socks_data_sent, &mut socks_data_dropped,
-                &dead_conns,
+            let ret = libc::select(
+                nfds,
+                &mut read_fds,
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+                &mut timeout,
             );
+
+            if ret > 0 {
+                // Read all available packets from TUN fd
+                if libc::FD_ISSET(fd, &read_fds) {
+                    loop {
+                        let n = libc::read(
+                            fd,
+                            read_buf.as_mut_ptr() as *mut c_void,
+                            read_buf.len(),
+                        );
+                        if n <= 0 {
+                            if n < 0 {
+                                let errno = *libc::__error();
+                                if errno != libc::EAGAIN {
+                                    read_errors += 1;
+                                    if read_errors <= 5 {
+                                        logging::bridge_log(&format!(
+                                            "packet_loop: read error: errno={}", errno
+                                        ));
+                                    }
+                                }
+                            }
+                            break;
+                        }
+                        let n = n as usize;
+                        pkt_total += 1;
+                        // Strip 4-byte utun header
+                        if n <= 4 {
+                            continue;
+                        }
+                        let ip_data = &read_buf[4..n];
+
+                        // Log first few packets
+                        if pkt_total <= 5 {
+                            let version = if !ip_data.is_empty() { ip_data[0] >> 4 } else { 0 };
+                            let proto = if ip_data.len() > 9 { ip_data[9] } else { 0 };
+                            logging::bridge_log(&format!(
+                                "packet_loop: pkt #{}: {}B, ip_ver={}, proto={}",
+                                pkt_total, n, version, proto
+                            ));
+                        }
+
+                        // Intercept UDP before lwIP
+                        if let Some((src_ip, src_port, dst_ip, dst_port, payload)) =
+                            parse_udp_packet(ip_data)
+                        {
+                            pkt_udp += 1;
+                            if pkt_udp <= 3 {
+                                let dst = Ipv4Addr::from(dst_ip.to_ne_bytes());
+                                logging::bridge_log(&format!(
+                                    "packet_loop: UDP -> {}:{} ({}B)",
+                                    dst, dst_port, payload.len()
+                                ));
+                            }
+                            let _ = tun_tx.send(TunEvent::UdpPacket {
+                                src_ip,
+                                src_port,
+                                dst_ip,
+                                dst_port,
+                                data: payload.to_vec(),
+                            });
+                        } else {
+                            // Check if TCP for stats
+                            if ip_data.len() > 9 && ip_data[9] == 6 {
+                                pkt_tcp += 1;
+                            } else {
+                                _pkt_other += 1;
+                            }
+                            // Feed to lwIP via pbuf
+                            let pkt_len = ip_data.len();
+                            if pkt_len <= u16::MAX as usize {
+                                let p = lwip_ffi::pbuf_alloc(
+                                    lwip_ffi::PBUF_RAW,
+                                    pkt_len as u16,
+                                    lwip_ffi::PBUF_RAM,
+                                );
+                                if !p.is_null() {
+                                    let payload_ptr = lwip_ffi::pbuf_payload(p) as *mut u8;
+                                    std::ptr::copy_nonoverlapping(
+                                        ip_data.as_ptr(),
+                                        payload_ptr,
+                                        pkt_len,
+                                    );
+                                    // ip_input takes ownership of the pbuf — do NOT free
+                                    lwip_ffi::ip_input(p, netif);
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Drain wake pipe
+                if libc::FD_ISSET(wake_read_fd, &read_fds) {
+                    let mut drain_buf = [0u8; 256];
+                    while libc::read(
+                        wake_read_fd,
+                        drain_buf.as_mut_ptr() as *mut c_void,
+                        drain_buf.len(),
+                    ) > 0 {}
+                }
+            }
         }
+
+        // Process events from tokio (SOCKS5 responses) — non-blocking
         while let Ok(event) = socks_rx.try_recv() {
             process_socks_event(
-                event, fd, &mut conns, &mut sockets,
+                event, fd, &mut lwip_state,
                 &mut socks_data_recv, &mut socks_data_sent, &mut socks_data_dropped,
                 &dead_conns,
             );
         }
 
-        // 7. Poll again to flush data written to sockets in steps 5-6
-        iface.poll(smol_now, &mut device, &mut sockets);
+        // Run lwIP timers
+        unsafe { lwip_ffi::sys_check_timeouts(); }
 
-        // 8. Drain TX queue — write smoltcp output packets to utun fd
+        // Drain TX queue — write lwIP output packets to utun fd
         static TX_LOG_COUNT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-        while let Some(pkt) = device.tx_queue.pop_front() {
+        while let Some(pkt) = lwip_state.tx_queue.pop_front() {
             if pkt.is_empty() {
                 continue;
             }
@@ -697,101 +603,59 @@ async fn packet_loop(
             out.extend_from_slice(&pkt);
             tx_pkt_count += 1;
             tx_byte_count += out.len() as u64;
-            let written = unsafe {
-                libc::write(fd, out.as_ptr() as *const c_void, out.len())
-            };
-            if written < 0 && tx_pkt_count <= 5 {
+            // Retry writes that fail with EAGAIN (utun buffer full during burst)
+            let mut retries = 0u32;
+            loop {
+                let written = unsafe {
+                    libc::write(fd, out.as_ptr() as *const c_void, out.len())
+                };
+                if written >= 0 {
+                    break;
+                }
                 let errno = unsafe { *libc::__error() };
-                logging::bridge_log(&format!("TX write error: errno={}, pkt_len={}", errno, out.len()));
+                if errno == libc::EAGAIN && retries < 5 {
+                    retries += 1;
+                    std::thread::sleep(std::time::Duration::from_micros(100));
+                    continue;
+                }
+                if tx_pkt_count <= 5 || retries > 0 {
+                    logging::bridge_log(&format!(
+                        "TX write error: errno={}, pkt_len={}, retries={}", errno, out.len(), retries
+                    ));
+                }
+                break;
             }
         }
 
-        // 9. Reap stale sockets
-        let now = Instant::now();
-        let mut reaped = 0u32;
-        for ci in conns.iter_mut() {
-            match ci.state {
-                ConnState::Listening => {
-                    // Listening socket that never got a SYN match
-                    if now.duration_since(ci.state_since) >= LISTEN_TIMEOUT {
-                        let socket = sockets.get_mut::<smol_tcp::Socket>(ci.handle);
-                        socket.abort();
-                        ci.state = ConnState::Free;
-                        ci.state_since = now;
-                        ci.conn_id = 0;
-                        ci.dst_ip = 0;
-                        ci.dst_port = 0;
-                        ci.pending_write.clear();
-                        reaped += 1;
-                    }
-                }
-                ConnState::Established => {
-                    let socket = sockets.get_mut::<smol_tcp::Socket>(ci.handle);
-                    let tcp_state = socket.state();
-                    // Sockets stuck in closing states (FinWait1/2, CloseWait, etc.)
-                    let is_closing = matches!(
-                        tcp_state,
-                        smol_tcp::State::FinWait1
-                            | smol_tcp::State::FinWait2
-                            | smol_tcp::State::CloseWait
-                            | smol_tcp::State::Closing
-                            | smol_tcp::State::LastAck
-                            | smol_tcp::State::TimeWait
-                    );
-                    if is_closing && now.duration_since(ci.state_since) >= CLOSE_TIMEOUT {
-                        let _ = tun_tx.send(TunEvent::TcpClosed {
-                            conn_id: ci.conn_id,
-                        });
-                        dead_conns.insert(ci.conn_id);
-                        socket.abort();
-                        ci.state = ConnState::Free;
-                        ci.state_since = now;
-                        ci.conn_id = 0;
-                        ci.dst_ip = 0;
-                        ci.dst_port = 0;
-                        ci.pending_write.clear();
-                        reaped += 1;
-                    }
-                }
-                ConnState::Free => {}
-            }
-        }
-        if reaped > 0 {
-            let free_count = conns.iter().filter(|c| c.state == ConnState::Free).count();
-            logging::bridge_log(&format!(
-                "REAPER: recycled {} stale sockets ({} free / {} total)",
-                reaped, free_count, MAX_SOCKETS
-            ));
-        }
-
-        // 10. Periodic cleanup and stats
+        // Periodic cleanup and stats
         if last_stats.elapsed() >= std::time::Duration::from_secs(5) {
-            // Purge dead_conns — any orphan events still in the channel after 5s
-            // are gone; conn_ids are monotonically increasing so no reuse risk.
+            // Purge dead_conns
             dead_conns.clear();
-            let free_count = conns.iter().filter(|c| c.state == ConnState::Free).count();
-            let listen_count = conns.iter().filter(|c| c.state == ConnState::Listening).count();
-            let pending_total: usize = conns.iter().map(|c| c.pending_write.len()).sum();
+            let active_conns = lwip_state.conns.len();
             logging::bridge_log(&format!(
-                "STATS: rx={} udp={} tcp={} conns={} free={} listen={} pending={}B tx_pkts={} tx_bytes={} socks_recv={} socks_sent={} socks_drop={}",
-                pkt_total, pkt_udp, pkt_tcp, active_conns, free_count, listen_count,
-                pending_total, tx_pkt_count, tx_byte_count,
+                "STATS: rx={} udp={} tcp={} conns={} tx_pkts={} tx_bytes={} socks_recv={} socks_sent={} socks_drop={}",
+                pkt_total, pkt_udp, pkt_tcp, active_conns,
+                tx_pkt_count, tx_byte_count,
                 socks_data_recv, socks_data_sent, socks_data_dropped
             ));
             last_stats = Instant::now();
         }
     }
 
+    // Cleanup
+    unsafe {
+        LWIP_STATE = std::ptr::null_mut();
+    }
+
     logging::bridge_log("packet_loop: exiting main loop");
     Ok(())
 }
 
-/// Process a single SocksEvent (extracted to avoid duplicating logic).
+/// Process a single SocksEvent.
 fn process_socks_event(
     event: SocksEvent,
     fd: RawFd,
-    conns: &mut [ConnInfo],
-    sockets: &mut SocketSet,
+    lwip_state: &mut LwipState,
     socks_data_recv: &mut u64,
     socks_data_sent: &mut u64,
     socks_data_dropped: &mut u64,
@@ -799,60 +663,53 @@ fn process_socks_event(
 ) {
     match event {
         SocksEvent::TcpData { conn_id, data } => {
-            // Skip data for connections that have been recycled — the SOCKS5 read
-            // task may still be draining queued events after the socket was freed.
             if dead_conns.contains(&conn_id) {
                 return;
             }
             *socks_data_recv += data.len() as u64;
-            if let Some(ci) = conns.iter_mut().find(|c| c.conn_id == conn_id && c.state == ConnState::Established) {
-                let socket = sockets.get_mut::<smol_tcp::Socket>(ci.handle);
-                if socket.can_send() {
-                    match socket.send_slice(&data) {
-                        Ok(n) => {
-                            *socks_data_sent += n as u64;
-                            if n < data.len() {
-                                // Buffer the unsent remainder for retry
-                                ci.pending_write.extend_from_slice(&data[n..]);
-                            }
-                        }
-                        Err(e) => {
-                            // Buffer the entire chunk for retry
-                            ci.pending_write.extend_from_slice(&data);
-                            logging::bridge_log(&format!(
-                                "send_slice ERR: conn_id={} err={:?} state={:?}",
-                                conn_id, e, socket.state()
-                            ));
-                        }
+            if let Some(conn) = lwip_state.conns.get(&conn_id) {
+                let pcb = conn.pcb;
+                // tcp_write takes u16 len — split into chunks if needed
+                let mut offset = 0;
+                while offset < data.len() {
+                    let chunk_len = std::cmp::min(data.len() - offset, u16::MAX as usize);
+                    let err = unsafe {
+                        lwip_ffi::tcp_write(
+                            pcb,
+                            data[offset..].as_ptr() as *const c_void,
+                            chunk_len as u16,
+                            lwip_ffi::TCP_WRITE_FLAG_COPY,
+                        )
+                    };
+                    if err != lwip_ffi::ERR_OK {
+                        logging::bridge_log(&format!(
+                            "tcp_write ERR: conn_id={} err={} len={}",
+                            conn_id, err, chunk_len
+                        ));
+                        *socks_data_dropped += (data.len() - offset) as u64;
+                        break;
                     }
-                } else if ci.pending_write.len() < MAX_PENDING_WRITE {
-                    // Buffer entire chunk — will be retried in step 5
-                    ci.pending_write.extend_from_slice(&data);
-                } else {
-                    *socks_data_dropped += data.len() as u64;
+                    *socks_data_sent += chunk_len as u64;
+                    offset += chunk_len;
                 }
+                unsafe { lwip_ffi::tcp_output(pcb); }
             } else {
-                // Connection not found or not Established — truly dropped
                 *socks_data_dropped += data.len() as u64;
-                let found = conns.iter().find(|c| c.conn_id == conn_id);
-                if let Some(ci) = found {
-                    logging::bridge_log(&format!(
-                        "SocksData MISS: conn_id={} len={} our_state={:?} sock_state={:?}",
-                        conn_id, data.len(), ci.state,
-                        sockets.get::<smol_tcp::Socket>(ci.handle).state()
-                    ));
-                } else {
-                    logging::bridge_log(&format!(
-                        "SocksData ORPHAN: conn_id={} len={} (no conn)",
-                        conn_id, data.len()
-                    ));
-                }
+                logging::bridge_log(&format!(
+                    "SocksData ORPHAN: conn_id={} len={} (no conn)",
+                    conn_id, data.len()
+                ));
             }
         }
         SocksEvent::TcpClose { conn_id } => {
-            if let Some(ci) = conns.iter().find(|c| c.conn_id == conn_id) {
-                let socket = sockets.get_mut::<smol_tcp::Socket>(ci.handle);
-                socket.close();
+            if let Some(conn) = lwip_state.conns.remove(&conn_id) {
+                unsafe {
+                    let err = lwip_ffi::tcp_close(conn.pcb);
+                    if err != lwip_ffi::ERR_OK {
+                        // tcp_close failed (e.g. out of memory) — force abort
+                        lwip_ffi::tcp_abort(conn.pcb);
+                    }
+                }
             }
         }
         SocksEvent::UdpReply {
@@ -871,31 +728,6 @@ fn process_socks_event(
             }
         }
     }
-}
-
-/// Parse a TCP SYN packet, returning (dst_ip_ne, dst_port) if it's a SYN.
-fn parse_tcp_syn(ip_data: &[u8]) -> Option<(u32, u16)> {
-    if ip_data.len() < 40 {
-        return None; // minimum: 20-byte IP + 20-byte TCP
-    }
-    if (ip_data[0] >> 4) != 4 {
-        return None; // not IPv4
-    }
-    if ip_data[9] != 6 {
-        return None; // not TCP
-    }
-    let ihl = (ip_data[0] & 0x0F) as usize * 4;
-    if ip_data.len() < ihl + 20 {
-        return None;
-    }
-    let tcp_flags = ip_data[ihl + 13];
-    // SYN flag set, ACK not set (initial SYN only)
-    if (tcp_flags & 0x02) == 0 || (tcp_flags & 0x10) != 0 {
-        return None;
-    }
-    let dst_ip = u32::from_ne_bytes([ip_data[16], ip_data[17], ip_data[18], ip_data[19]]);
-    let dst_port = u16::from_be_bytes([ip_data[ihl + 2], ip_data[ihl + 3]]);
-    Some((dst_ip, dst_port))
 }
 
 /// Parse an IPv4+UDP packet, returning (src_ip, src_port, dst_ip, dst_port, payload).
@@ -933,7 +765,7 @@ fn parse_udp_packet(ip_data: &[u8]) -> Option<(u32, u16, u32, u16, &[u8])> {
 
 async fn tokio_handler(
     mut tun_rx: mpsc::UnboundedReceiver<TunEvent>,
-    socks_tx: mpsc::UnboundedSender<SocksEvent>,
+    socks_tx: WakingSender,
     socks_addr: SocketAddr,
 ) {
     while let Some(event) = tun_rx.recv().await {
@@ -977,9 +809,9 @@ async fn tokio_handler(
                 data,
             } => {
                 if dst_port == 53 {
-                    let socks_tx2 = socks_tx.clone();
+                    let socks_tx_dns = socks_tx.clone();
                     tokio::spawn(async move {
-                        handle_dns_query(src_ip, src_port, dst_ip, dst_port, data, socks_tx2).await;
+                        handle_dns_query(src_ip, src_port, dst_ip, dst_port, data, socks_tx_dns).await;
                     });
                 } else {
                     debug!(
@@ -1000,7 +832,7 @@ use std::sync::LazyLock;
 static TCP_CONN_MAP: LazyLock<ParkMutex<HashMap<u64, mpsc::Sender<Vec<u8>>>>> =
     LazyLock::new(|| ParkMutex::new(HashMap::new()));
 
-/// Tracks spawned SOCKS5 task handles so they can be aborted when smoltcp recycles the connection.
+/// Tracks spawned SOCKS5 task handles so they can be aborted when lwIP recycles the connection.
 static TCP_TASK_MAP: LazyLock<ParkMutex<HashMap<u64, tokio::task::JoinHandle<()>>>> =
     LazyLock::new(|| ParkMutex::new(HashMap::new()));
 
@@ -1008,7 +840,7 @@ async fn handle_tcp_conn(
     conn_id: u64,
     dst: SocketAddrV4,
     socks_addr: SocketAddr,
-    socks_tx: mpsc::UnboundedSender<SocksEvent>,
+    socks_tx: WakingSender,
     mut data_rx: mpsc::Receiver<Vec<u8>>,
 ) {
 
@@ -1208,7 +1040,7 @@ async fn handle_dns_query(
     dst_ip: u32,
     dst_port: u16,
     query: Vec<u8>,
-    socks_tx: mpsc::UnboundedSender<SocksEvent>,
+    socks_tx: WakingSender,
 ) {
     let query_name = dns_table::parse_dns_query_name(&query)
         .unwrap_or_else(|| "<unparseable>".to_string());

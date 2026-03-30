@@ -37,6 +37,7 @@ pub fn init_doh_client(socks_port: u16) {
         let http_client = reqwest::Client::builder()
             .proxy(proxy)
             .timeout(std::time::Duration::from_secs(DOH_TIMEOUT_SECS))
+            .danger_accept_invalid_certs(true)
             .build()
             .expect("failed to build reqwest client");
 

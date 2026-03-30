@@ -2,6 +2,7 @@ mod diagnostics;
 mod dns_table;
 mod doh_client;
 mod logging;
+mod lwip_ffi;
 mod tun2socks;
 
 use mihomo_api::ApiServer;
