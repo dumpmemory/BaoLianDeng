@@ -12,13 +12,14 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 VM_BASE_NAME="bld-e2e-base"
 VM_NAME="bld-stability-run-$$"
-SS_PID=""
+TROJAN_PID=""
 HTTPS_PID=""
 VM_PID=""
 
 DURATION="${DURATION:-10}"
 HTTPS_PORT="${HTTPS_PORT:-18443}"
 CERT_DIR="/tmp/stress-test-cert"
+TROJAN_CERT_DIR="/tmp/trojan-cert"
 
 source "$SCRIPT_DIR/lib/vm-helpers.sh"
 
@@ -26,11 +27,11 @@ cleanup() {
     echo ""
     echo "=== Cleanup ==="
     [ -n "$HTTPS_PID" ] && kill "$HTTPS_PID" 2>/dev/null && echo "Stopped HTTPS server (PID $HTTPS_PID)"
-    [ -n "$SS_PID" ] && kill "$SS_PID" 2>/dev/null && echo "Stopped ssserver (PID $SS_PID)"
+    [ -n "$TROJAN_PID" ] && kill "$TROJAN_PID" 2>/dev/null && echo "Stopped trojan-go (PID $TROJAN_PID)"
     vm_stop "$VM_NAME" 2>/dev/null
     [ -n "$VM_PID" ] && wait "$VM_PID" 2>/dev/null || true
     vm_delete "$VM_NAME" 2>/dev/null
-    rm -rf /tmp/stress-test-data /tmp/stress-test-cert
+    rm -rf /tmp/stress-test-data /tmp/stress-test-cert /tmp/trojan-cert
 }
 trap cleanup EXIT
 
@@ -42,7 +43,7 @@ echo ""
 
 # --- Phase 1: Prerequisites ---
 echo "--- Phase 1: Prerequisites ---"
-for cmd in tart ssserver python3 openssl; do
+for cmd in tart trojan-go python3 openssl; do
     if ! command -v "$cmd" &>/dev/null; then
         echo "ERROR: $cmd not found"
         exit 1
@@ -80,22 +81,9 @@ if [ -z "$APP_BUILD_PATH" ]; then
 fi
 echo "Built app: $APP_BUILD_PATH"
 
-# --- Phase 3: Start Shadowsocks server ---
+# --- Phase 3: Start HTTPS server ---
 echo ""
-echo "--- Phase 3: Start Shadowsocks server ---"
-ssserver -c "$SCRIPT_DIR/config/ssserver-config.json" &
-SS_PID=$!
-sleep 1
-if lsof -i :18388 -sTCP:LISTEN &>/dev/null; then
-    echo "ssserver listening on port 18388 (PID $SS_PID)"
-else
-    echo "ERROR: ssserver not listening"
-    exit 1
-fi
-
-# --- Phase 4: Start HTTPS server ---
-echo ""
-echo "--- Phase 4: Start HTTPS server ---"
+echo "--- Phase 3: Start HTTPS server ---"
 # 500 files of mixed sizes (1KB-64KB) to simulate real web resources
 python3 "$SCRIPT_DIR/https-server.py" \
     --port "$HTTPS_PORT" \
@@ -109,6 +97,31 @@ if lsof -i :"$HTTPS_PORT" -sTCP:LISTEN &>/dev/null; then
     echo "HTTPS server listening on port $HTTPS_PORT (PID $HTTPS_PID)"
 else
     echo "ERROR: HTTPS server not listening"
+    exit 1
+fi
+
+# --- Phase 4: Start Trojan server ---
+echo ""
+echo "--- Phase 4: Start Trojan server ---"
+
+# Generate self-signed cert for trojan-go
+mkdir -p "$TROJAN_CERT_DIR"
+openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 \
+    -keyout "$TROJAN_CERT_DIR/key.pem" -out "$TROJAN_CERT_DIR/cert.pem" \
+    -days 1 -nodes -subj "/CN=e2e-trojan" 2>/dev/null
+echo "Generated trojan-go TLS certificate"
+
+# Create trojan-go config (uses HTTPS server as TLS fallback)
+sed -e "s|__CERT_DIR__|$TROJAN_CERT_DIR|g" -e "s|__FALLBACK_PORT__|$HTTPS_PORT|g" \
+    "$SCRIPT_DIR/config/trojan-server-config.json" > /tmp/trojan-server-config.json
+
+trojan-go -config /tmp/trojan-server-config.json &
+TROJAN_PID=$!
+sleep 1
+if lsof -i :18388 -sTCP:LISTEN &>/dev/null; then
+    echo "trojan-go listening on port 18388 (PID $TROJAN_PID)"
+else
+    echo "ERROR: trojan-go not listening"
     exit 1
 fi
 

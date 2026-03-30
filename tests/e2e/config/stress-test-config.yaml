@@ -15,23 +15,23 @@ dns:
     - https://__HOST_IP__:18444/dns-query
 
 proxies:
-  - name: e2e-ss
-    type: ss
+  - name: e2e-trojan
+    type: trojan
     server: __HOST_IP__
     port: 18388
-    cipher: aes-256-gcm
     password: e2e-test-password
     udp: true
+    skip-cert-verify: true
 
 proxy-groups:
   - name: PROXY
     type: select
     proxies:
-      - e2e-ss
+      - e2e-trojan
   - name: GLOBAL
     type: select
     proxies:
-      - e2e-ss
+      - e2e-trojan
 
 rules:
-  - MATCH,e2e-ss
+  - MATCH,e2e-trojan

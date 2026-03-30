@@ -7,8 +7,11 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 VM_BASE_NAME="bld-e2e-base"
 VM_NAME="bld-e2e-run-$$"
-SS_PID=""
+TROJAN_PID=""
+FALLBACK_PID=""
 VM_PID=""
+TROJAN_CERT_DIR="/tmp/trojan-cert"
+FALLBACK_PORT="18080"
 
 source "$SCRIPT_DIR/lib/vm-helpers.sh"
 
@@ -16,10 +19,12 @@ source "$SCRIPT_DIR/lib/vm-helpers.sh"
 cleanup() {
     echo ""
     echo "=== Cleanup ==="
-    [ -n "$SS_PID" ] && kill "$SS_PID" 2>/dev/null && echo "Stopped ssserver (PID $SS_PID)"
+    [ -n "$TROJAN_PID" ] && kill "$TROJAN_PID" 2>/dev/null && echo "Stopped trojan-go (PID $TROJAN_PID)"
+    [ -n "$FALLBACK_PID" ] && kill "$FALLBACK_PID" 2>/dev/null && echo "Stopped fallback HTTP (PID $FALLBACK_PID)"
     vm_stop "$VM_NAME" 2>/dev/null
     [ -n "$VM_PID" ] && wait "$VM_PID" 2>/dev/null || true
     vm_delete "$VM_NAME" 2>/dev/null
+    rm -rf "$TROJAN_CERT_DIR"
 }
 trap cleanup EXIT
 
@@ -36,8 +41,8 @@ if ! command -v tart &>/dev/null; then
     exit 1
 fi
 
-if ! command -v ssserver &>/dev/null; then
-    echo "ERROR: ssserver not found. Run: brew install shadowsocks-rust"
+if ! command -v trojan-go &>/dev/null; then
+    echo "ERROR: trojan-go not found. Run: brew install trojan-go"
     exit 1
 fi
 
@@ -78,18 +83,33 @@ if [ -z "$APP_BUILD_PATH" ]; then
 fi
 echo "Built app: $APP_BUILD_PATH"
 
-# --- Phase 3: Start Shadowsocks server ---
+# --- Phase 3: Start Trojan server ---
 echo ""
-echo "--- Phase 3: Start Shadowsocks server ---"
-ssserver -c "$SCRIPT_DIR/config/ssserver-config.json" &
-SS_PID=$!
+echo "--- Phase 3: Start Trojan server ---"
+
+# Generate self-signed cert for trojan-go
+mkdir -p "$TROJAN_CERT_DIR"
+openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 \
+    -keyout "$TROJAN_CERT_DIR/key.pem" -out "$TROJAN_CERT_DIR/cert.pem" \
+    -days 1 -nodes -subj "/CN=e2e-trojan" 2>/dev/null
+echo "Generated trojan-go TLS certificate"
+
+# Start a minimal fallback HTTP server (trojan-go requires a valid fallback)
+python3 -m http.server "$FALLBACK_PORT" --directory /tmp &>/dev/null &
+FALLBACK_PID=$!
 sleep 1
 
-# Verify ssserver is listening
+sed -e "s|__CERT_DIR__|$TROJAN_CERT_DIR|g" -e "s|__FALLBACK_PORT__|$FALLBACK_PORT|g" \
+    "$SCRIPT_DIR/config/trojan-server-config.json" > /tmp/trojan-server-config.json
+
+trojan-go -config /tmp/trojan-server-config.json &
+TROJAN_PID=$!
+sleep 1
+
 if lsof -i :18388 -sTCP:LISTEN &>/dev/null; then
-    echo "ssserver listening on port 18388 (PID $SS_PID)"
+    echo "trojan-go listening on port 18388 (PID $TROJAN_PID)"
 else
-    echo "ERROR: ssserver not listening on port 18388"
+    echo "ERROR: trojan-go not listening on port 18388"
     exit 1
 fi
 

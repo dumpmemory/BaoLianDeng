@@ -115,7 +115,12 @@ final class ConfigManager {
         var groups = parseProxyGroups(from: yaml)
         var changed = false
         for i in groups.indices where groups[i].type == "select" {
-            groups[i].proxies = [selectedNode]
+            // Move selected node to front (index 0) so SelectorGroup defaults to it,
+            // but keep all other members so the user can switch nodes at runtime.
+            var members = groups[i].proxies
+            members.removeAll { $0 == selectedNode }
+            members.insert(selectedNode, at: 0)
+            groups[i].proxies = members
             changed = true
         }
         guard changed else { return }
@@ -221,7 +226,11 @@ final class ConfigManager {
             }
         }
 
-        try? saveConfig(lines.joined(separator: "\n"))
+        // Remove subscriptions: section — mihomo's built-in subscription refresh
+        // replaces only the proxies list, breaking proxy-group member references.
+        var result = lines.joined(separator: "\n")
+        Self.stripSubscriptionsSection(&result)
+        try? saveConfig(result)
     }
 
     /// Sanitize a config string in-place (same rules as sanitizeConfig but on a String).
@@ -244,6 +253,31 @@ final class ConfigManager {
             return line
         }
         config = lines.joined(separator: "\n")
+        stripSubscriptionsSection(&config)
+    }
+
+    /// Remove the top-level `subscriptions:` section from a config string.
+    /// Mihomo's built-in subscription refresh replaces only the proxies list,
+    /// breaking proxy-group member references. We handle refresh in the app instead.
+    static func stripSubscriptionsSection(_ config: inout String) {
+        let lines = config.components(separatedBy: "\n")
+        guard let start = lines.firstIndex(where: {
+            $0.trimmingCharacters(in: .whitespaces).hasPrefix("subscriptions:")
+                && !$0.hasPrefix(" ") && !$0.hasPrefix("\t")
+        }) else { return }
+        // Find end: next top-level key or end of file
+        var end = lines.count
+        for i in (start + 1)..<lines.count {
+            let line = lines[i]
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if !trimmed.isEmpty && !line.hasPrefix(" ") && !line.hasPrefix("\t") {
+                end = i
+                break
+            }
+        }
+        var filtered = Array(lines[0..<start])
+        filtered.append(contentsOf: lines[end...])
+        config = filtered.joined(separator: "\n")
     }
 
     /// Merge a Clash subscription YAML into our base config.

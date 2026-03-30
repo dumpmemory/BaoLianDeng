@@ -41,8 +41,8 @@ echo "Config written to $CONFIG_DIR/config.yaml"
 # --- Step 2: Set UserDefaults ---
 echo "--- Step 2: Set UserDefaults ---"
 defaults write "$BUNDLE_ID" proxyMode -string "global"
-defaults write "$BUNDLE_ID" selectedNode -string "e2e-ss"
-echo "Proxy mode: global, node: e2e-ss"
+defaults write "$BUNDLE_ID" selectedNode -string "e2e-trojan"
+echo "Proxy mode: global, node: e2e-trojan"
 
 # --- Step 3: Launch app ---
 echo "--- Step 3: Launch app ---"

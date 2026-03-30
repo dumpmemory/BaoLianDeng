@@ -29,7 +29,7 @@ echo "--- Setting up VPN ---"
 mkdir -p "$CONFIG_DIR"
 sed "s/__HOST_IP__/$HOST_IP/g" /tmp/e2e-test-config.yaml > "$CONFIG_DIR/config.yaml"
 defaults write "$BUNDLE_ID" proxyMode -string "global"
-defaults write "$BUNDLE_ID" selectedNode -string "e2e-ss"
+defaults write "$BUNDLE_ID" selectedNode -string "e2e-trojan"
 
 open "$APP_PATH" 2>&1 || true
 sleep 5

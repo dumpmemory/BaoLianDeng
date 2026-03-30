@@ -1,0 +1,14 @@
+{
+    "run_type": "server",
+    "local_addr": "0.0.0.0",
+    "local_port": 18388,
+    "remote_addr": "127.0.0.1",
+    "remote_port": __FALLBACK_PORT__,
+    "password": [
+        "e2e-test-password"
+    ],
+    "ssl": {
+        "cert": "__CERT_DIR__/cert.pem",
+        "key": "__CERT_DIR__/key.pem"
+    }
+}
