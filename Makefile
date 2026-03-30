@@ -25,7 +25,7 @@ RUSTFLAGS_MACOS = -C strip=symbols
 # macOS SDK path
 MACOS_SDK = $(shell xcrun --sdk macosx --show-sdk-path)
 
-.PHONY: all framework framework-macos clean e2e-test e2e-setup
+.PHONY: all framework framework-macos clean e2e-test e2e-setup stress-test
 
 all: framework
 
@@ -73,3 +73,6 @@ e2e-setup:
 
 e2e-test:
 	./tests/e2e/run-e2e.sh
+
+stress-test:
+	./tests/e2e/run-stress-test.sh
