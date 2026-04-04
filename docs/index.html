@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>BaoLianDeng — macOS VPN Proxy App Powered by Mihomo</title>
-<meta name="description" content="BaoLianDeng is a macOS VPN proxy app powered by Mihomo (Clash Meta) with subscription management, traffic analytics, and a built-in config editor.">
+<meta name="description" content="BaoLianDeng is a macOS VPN proxy app powered by Mihomo (Clash Meta) using NETransparentProxyProvider for high-performance socket-level proxying, with subscription management, traffic analytics, and a built-in config editor.">
 <style>
 :root {
   --primary: #4A5AB5;
@@ -419,7 +419,7 @@ footer .footer-links {
 <section class="hero">
   <img src="images/AppIcon.png" alt="BaoLianDeng App Icon" class="hero-icon">
   <h1>BaoLianDeng</h1>
-  <p class="tagline">macOS VPN proxy app powered by Mihomo (Clash Meta)</p>
+  <p class="tagline">macOS VPN proxy app powered by Mihomo (Clash Meta) with NETransparentProxyProvider</p>
   <p class="hero-version"><a href="https://github.com/madeye/BaoLianDeng/releases/tag/v4.0">v4.0</a></p>
   <div class="hero-buttons">
     <a href="https://github.com/madeye/BaoLianDeng/releases/download/v4.0/BaoLianDeng-4.0.dmg" class="btn btn-primary">
@@ -462,6 +462,11 @@ footer .footer-links {
       <span class="feature-icon" aria-hidden="true">&#x1F504;</span>
       <h3>Proxy Groups</h3>
       <p>View and switch proxy groups via Mihomo's REST API. Supports rule, global, and direct modes.</p>
+    </div>
+    <div class="feature-card">
+      <span class="feature-icon" aria-hidden="true">&#x26A1;</span>
+      <h3>Transparent Proxy</h3>
+      <p>Built on NETransparentProxyProvider for socket-level flow interception — faster and more efficient than traditional TUN-based solutions.</p>
     </div>
     <div class="feature-card">
       <span class="feature-icon" aria-hidden="true">&#x1F4CB;</span>
