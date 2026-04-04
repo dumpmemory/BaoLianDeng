@@ -46,7 +46,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "宝莲灯"
+            "value" : "BaoLianDeng"
           }
         }
       }
@@ -86,7 +86,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "系统设置已打开。\n\n请前往网络扩展并开启宝莲灯以启用 VPN。"
+            "value" : "系统设置已打开。\n\n请前往网络扩展并开启 BaoLianDeng 以启用 VPN。"
           }
         }
       }
@@ -856,7 +856,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "关于宝莲灯"
+            "value" : "关于 BaoLianDeng"
           }
         }
       }
