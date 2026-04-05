@@ -27,7 +27,7 @@ macOS VPN proxy app powered by [Mihomo](https://github.com/MetaCubeX/mihomo) (Cl
 │  │  VPNManager (NETunnelProviderManager) │  │
 │  └──────────────────┬────────────────────┘  │
 ├─────────────────────┼───────────────────────┤
-│      System Extension (PacketTunnel)        │
+│    System Extension (TransparentProxy)      │
 │  ┌──────────────────┴────────────────────┐  │
 │  │  NETransparentProxyProvider           │  │
 │  │    ┌──────────────────────────────┐   │  │

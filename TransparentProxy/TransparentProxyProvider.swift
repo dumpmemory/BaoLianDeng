@@ -347,8 +347,15 @@ class TransparentProxyProvider: NETransparentProxyProvider {
                 }
             }
 
+            // Restore original transaction ID (DoH server may echo a different ID)
+            var fixedResponse = response
+            if fixedResponse.count >= 2 {
+                fixedResponse[0] = query[0]
+                fixedResponse[1] = query[1]
+            }
+
             // Send response back to the flow
-            flow.writeDatagrams([response], sentBy: [endpoint]) { error in
+            flow.writeDatagrams([fixedResponse], sentBy: [endpoint]) { error in
                 if let error = error {
                     AppLogger.tunnel.error(
                         "DNS write error: \(error, privacy: .public)"
@@ -363,49 +370,32 @@ class TransparentProxyProvider: NETransparentProxyProvider {
 
     // MARK: - DoH Client (reference: trans_proxy dns.rs)
 
+    /// URLSession configured to route through the local SOCKS5 proxy.
+    private lazy var dohSession: URLSession = {
+        let config = URLSessionConfiguration.ephemeral
+        config.connectionProxyDictionary = [
+            kCFProxyTypeKey: kCFProxyTypeSOCKS,
+            kCFStreamPropertySOCKSProxyHost: Self.socksHost,
+            kCFStreamPropertySOCKSProxyPort: Self.socksPort
+        ]
+        config.timeoutIntervalForRequest = 10
+        return URLSession(configuration: config)
+    }()
+
     /// Resolve a DNS query via DNS-over-HTTPS through the SOCKS5 proxy.
     private func resolveDNSviaDoH(query: Data) async throws -> Data {
-        // Connect to DoH server through SOCKS5
-        let socksConn = try await connectTCP(
-            host: Self.socksHost, port: Self.socksPort
-        )
+        var request = URLRequest(url: URL(string: "https://cloudflare-dns.com/dns-query")!)
+        request.httpMethod = "POST"
+        request.setValue("application/dns-message", forHTTPHeaderField: "Content-Type")
+        request.setValue("application/dns-message", forHTTPHeaderField: "Accept")
+        request.httpBody = query
 
-        // SOCKS5 handshake to DoH server
-        try await socks5Handshake(
-            connection: socksConn,
-            destHost: "cloudflare-dns.com",
-            destPort: 443
-        )
-
-        // Build HTTP request with DNS wire format (RFC 8484)
-        let httpRequest = buildDoHRequest(query: query)
-
-        // Send request
-        try await sendAll(connection: socksConn, data: httpRequest)
-
-        // Read response
-        let responseData = try await readHTTPResponse(connection: socksConn)
-
-        socksConn.cancel()
-        return responseData
-    }
-
-    private func buildDoHRequest(query: Data) -> Data {
-        var request = Data()
-        let path = "/dns-query"
-        let host = "cloudflare-dns.com"
-        let header = [
-            "POST \(path) HTTP/1.1\r\n",
-            "Host: \(host)\r\n",
-            "Content-Type: application/dns-message\r\n",
-            "Accept: application/dns-message\r\n",
-            "Content-Length: \(query.count)\r\n",
-            "Connection: close\r\n",
-            "\r\n"
-        ].joined()
-        request.append(header.data(using: .utf8)!)
-        request.append(query)
-        return request
+        let (data, response) = try await dohSession.data(for: request)
+        guard let httpResponse = response as? HTTPURLResponse,
+              httpResponse.statusCode == 200 else {
+            throw ProviderError.unexpectedEOF
+        }
+        return data
     }
 
     // MARK: - SOCKS5 Handshake

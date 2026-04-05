@@ -1,4 +1,6 @@
-# tun2socks Design Document
+> **Note:** This design document describes the legacy TUN-based architecture (NEPacketTunnelProvider + smoltcp tun2socks). As of v4.0, BaoLianDeng uses NETransparentProxyProvider for socket-level flow interception — see `TransparentProxy/TransparentProxyProvider.swift`.
+
+# tun2socks Design Document (Legacy)
 
 ## Overview
 
