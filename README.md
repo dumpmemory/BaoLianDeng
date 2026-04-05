@@ -6,13 +6,12 @@ macOS VPN proxy app powered by [Mihomo](https://github.com/MetaCubeX/mihomo) (Cl
 
 ## Features
 
-- **Subscription Management** — Add, edit, refresh, and switch between proxy subscriptions (Clash YAML and base64 formats)
-- **Proxy Node Selection** — Browse nodes by subscription with protocol icons and latency indicators
-- **Traffic Analytics** — Daily bar charts, session stats, and monthly summaries for proxy-only traffic
-- **Config Editor** — In-app YAML editor with validation for both local config and subscription configs
-- **Proxy Groups** — View and switch proxy groups via Mihomo's REST API
-- **Tunnel Logs** — Real-time log viewer for debugging the network extension
-- **Localization** — English and Simplified Chinese (zh-Hans)
+- **Transparent Proxy** — Built on `NETransparentProxyProvider` for socket-level flow interception, faster than traditional TUN-based solutions
+- **Rust-Powered Engine** — Mihomo (Clash Meta) compiled as a native xcframework via Rust FFI
+- **Per-App Proxy** — Choose which apps go through the proxy (allowlist) or bypass it (blocklist)
+- **Subscription Management** — Add, refresh, and switch between proxy subscriptions (Clash YAML and base64 formats)
+- **Smart Proxy Routing** — Browse nodes with latency indicators, switch proxy groups, rule/global/direct modes
+- **Traffic Analytics** — Daily bar charts, session stats, and monthly summaries for proxy traffic
 
 ## Architecture
 
@@ -30,7 +29,7 @@ macOS VPN proxy app powered by [Mihomo](https://github.com/MetaCubeX/mihomo) (Cl
 ├─────────────────────┼───────────────────────┤
 │      System Extension (PacketTunnel)        │
 │  ┌──────────────────┴────────────────────┐  │
-│  │    NEPacketTunnelProvider             │  │
+│  │  NETransparentProxyProvider           │  │
 │  │    ┌──────────────────────────────┐   │  │
 │  │    │ MihomoCore.xcframework (Rust)│   │  │
 │  │    │  - Proxy Engine              │   │  │
