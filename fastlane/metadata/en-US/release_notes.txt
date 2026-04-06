@@ -1,7 +1,7 @@
-Initial release of BaoLianDeng.
+BaoLianDeng v5.0
 
-- One-tap VPN connection with rule-based, global, and direct routing modes
-- Subscription management with Clash YAML and base64 support
-- Real-time traffic monitoring
-- Built-in configuration editor
-- Support for Shadowsocks, VMess, VLESS, Trojan, Hysteria, and WireGuard protocols
+- PKG installer for streamlined installation with system extension approval
+- Fix transparent proxy network rules for macOS 15+ compatibility
+- Improved VPN manager robustness: prevent duplicate configs and activation race conditions
+- Sidebar navigation with toolbar node display
+- Per-app proxy with search
