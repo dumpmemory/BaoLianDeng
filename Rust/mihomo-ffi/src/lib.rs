@@ -173,6 +173,7 @@ log-level: info\n\
 allow-lan: false\n\
 dns:\n\
   enable: true\n\
+  enhanced-mode: redir-host\n\
   listen: 127.0.0.1:1053\n\
   nameserver:\n\
     - 114.114.114.114\n\

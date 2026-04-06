@@ -79,21 +79,28 @@ final class UDPNATRelay {
 
     /// Send a datagram to the destination and record the IP for NAT2 filtering.
     func send(datagram: Data, toHost host: String, port: UInt16) {
-        lock.lock()
-        sentAddresses.add(host)
-        lock.unlock()
-
         var destAddr = sockaddr_in()
         destAddr.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
         destAddr.sin_family = sa_family_t(AF_INET)
         destAddr.sin_port = port.bigEndian
-        inet_pton(AF_INET, host, &destAddr.sin_addr)
+
+        // Validate IPv4 address — drop non-IPv4 (e.g. IPv6) silently
+        guard inet_pton(AF_INET, host, &destAddr.sin_addr) == 1 else { return }
+
+        lock.lock()
+        sentAddresses.add(host)
+        lock.unlock()
 
         datagram.withUnsafeBytes { buf in
             withUnsafePointer(to: &destAddr) { ptr in
                 ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockPtr in
-                    sendto(fd, buf.baseAddress, buf.count, 0,
-                           sockPtr, socklen_t(MemoryLayout<sockaddr_in>.size))
+                    let sent = sendto(fd, buf.baseAddress, buf.count, 0,
+                                      sockPtr, socklen_t(MemoryLayout<sockaddr_in>.size))
+                    if sent < 0 {
+                        AppLogger.tunnel.error(
+                            "UDPNATRelay: sendto failed: \(errno)"
+                        )
+                    }
                 }
             }
         }
@@ -107,10 +114,8 @@ final class UDPNATRelay {
         source.setEventHandler { [weak self] in
             self?.receiveDatagrams()
         }
-        source.setCancelHandler { [weak self] in
-            if let fd = self?.fd {
-                Darwin.close(fd)
-            }
+        source.setCancelHandler { [fd = self.fd] in
+            Darwin.close(fd)
         }
         source.resume()
         readSource = source
@@ -158,9 +163,12 @@ final class UDPNATRelay {
     }
 
     func cancel() {
-        readSource?.cancel()
-        readSource = nil
-        // fd is closed in the cancel handler
+        if let source = readSource {
+            source.cancel()  // fd closed in cancel handler
+            readSource = nil
+        } else {
+            Darwin.close(fd)  // No read source — close fd directly
+        }
     }
 
     deinit {

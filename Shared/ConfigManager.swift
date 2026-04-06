@@ -202,13 +202,17 @@ final class ConfigManager {
                 inTunBlock = trimmed.hasPrefix("tun:")
                 inDnsBlock = trimmed.hasPrefix("dns:")
             }
-            // Disable TUN mode — proxy mode uses tun2socks, not Mihomo's built-in TUN
+            // Disable TUN mode — transparent proxy intercepts at socket level, no TUN needed
             if inTunBlock && trimmed.hasPrefix("enable:") {
                 return line.replacingOccurrences(of: "enable: true", with: "enable: false")
             }
-            // Disable Mihomo's DNS server — tun2socks handles DNS via DoH
+            // Ensure Mihomo's DNS is enabled — transparent proxy forwards DNS queries to it
             if inDnsBlock && trimmed.hasPrefix("enable:") {
-                return line.replacingOccurrences(of: "enable: true", with: "enable: false")
+                return line.replacingOccurrences(of: "enable: false", with: "enable: true")
+            }
+            // Ensure redir-host mode (not fake-ip) — transparent proxy needs real IPs
+            if inDnsBlock && trimmed.hasPrefix("enhanced-mode:") {
+                return line.replacingOccurrences(of: "enhanced-mode: fake-ip", with: "enhanced-mode: redir-host")
             }
             // Disable automatic geo database updates
             if trimmed.hasPrefix("geo-auto-update:") {
@@ -237,7 +241,7 @@ final class ConfigManager {
     static func sanitizeConfigString(_ config: inout String) {
         config = config
             .replacingOccurrences(of: "geo-auto-update: true", with: "geo-auto-update: false")
-        // Disable TUN and DNS — block-aware so we only patch enable: inside the right block
+        // Disable TUN, enable DNS with redir-host — block-aware patching
         var lines = config.components(separatedBy: "\n")
         var inTunBlock = false
         var inDnsBlock = false
@@ -247,8 +251,14 @@ final class ConfigManager {
                 inTunBlock = trimmed.hasPrefix("tun:")
                 inDnsBlock = trimmed.hasPrefix("dns:")
             }
-            if (inTunBlock || inDnsBlock) && trimmed.hasPrefix("enable:") {
+            if inTunBlock && trimmed.hasPrefix("enable:") {
                 return line.replacingOccurrences(of: "enable: true", with: "enable: false")
+            }
+            if inDnsBlock && trimmed.hasPrefix("enable:") {
+                return line.replacingOccurrences(of: "enable: false", with: "enable: true")
+            }
+            if inDnsBlock && trimmed.hasPrefix("enhanced-mode:") {
+                return line.replacingOccurrences(of: "enhanced-mode: fake-ip", with: "enhanced-mode: redir-host")
             }
             return line
         }
@@ -429,18 +439,16 @@ final class ConfigManager {
         geo-auto-update: false
 
         dns:
-          enable: false
+          enable: true
           ipv6: true
           listen: 127.0.0.1:1053
           enhanced-mode: redir-host
           nameserver:
-            - https://dns.alidns.com/dns-query
-            - https://doh.pub/dns-query
-          fallback:
-            - https://doh.pub/dns-query
-            - https://dns.alidns.com/dns-query
             - 114.114.114.114
             - 223.5.5.5
+          fallback:
+            - 8.8.8.8
+            - 1.1.1.1
           fallback-filter:
             geoip: false
 

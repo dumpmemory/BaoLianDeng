@@ -31,7 +31,7 @@ struct VPNToolbarContent: ToolbarContent {
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
 
-                if vpnManager.isConnected, let node = selectedNode, !node.isEmpty {
+                if let node = selectedNode, !node.isEmpty {
                     Text(node)
                         .font(.subheadline.weight(.medium))
                         .lineLimit(1)

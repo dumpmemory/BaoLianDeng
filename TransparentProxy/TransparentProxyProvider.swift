@@ -19,34 +19,6 @@ import Network
 import os
 import Yams
 
-// MARK: - DNS Table (IP → Domain mapping)
-
-/// Shared IP→domain lookup table (reference: trans_proxy dns.rs DnsTable).
-/// When DNS queries are intercepted, A record responses populate this table.
-/// Later, TCP flows use it to send domain-based SOCKS5 CONNECT requests.
-final class DNSTable {
-    private var table: [String: String] = [:]  // IP → domain
-    private let lock = NSLock()
-    private let maxEntries = 10_000
-
-    func lookup(_ ipAddress: String) -> String? {
-        lock.lock()
-        defer { lock.unlock() }
-        return table[ipAddress]
-    }
-
-    func insert(ipAddress: String, domain: String) {
-        lock.lock()
-        defer { lock.unlock() }
-        if table.count >= maxEntries {
-            // Simple eviction: clear half
-            let keys = Array(table.keys.prefix(maxEntries / 2))
-            for key in keys { table.removeValue(forKey: key) }
-        }
-        table[ipAddress] = domain
-    }
-}
-
 // MARK: - Transparent Proxy Provider
 
 class TransparentProxyProvider: NETransparentProxyProvider {
@@ -54,13 +26,14 @@ class TransparentProxyProvider: NETransparentProxyProvider {
     private var gcTimer: DispatchSourceTimer?
     private var diagnosticTimer: DispatchSourceTimer?
     private var logTrimTimer: DispatchSourceTimer?
-    private let dnsTable = DNSTable()
     private var perAppSettings: PerAppProxySettings?
     private var perAppBundleIDSet: Set<String> = []
 
     private static let socksHost = "127.0.0.1"
     private static let socksPort: UInt16 = 7890
-    private static let dohURL = "https://cloudflare-dns.com/dns-query"
+    private static let mihomoDNSHost = "127.0.0.1"
+    private static let mihomoDNSPort: UInt16 = 1053
+    private static let dohURL = "https://8.8.8.8/dns-query"
 
     private lazy var logURL: URL = {
         let dir = ConfigManager.shared.configDirectoryURL?.deletingLastPathComponent()
@@ -218,9 +191,6 @@ class TransparentProxyProvider: NETransparentProxyProvider {
         let destHost = endpoint.hostname
         let destPort = endpoint.port
 
-        // Look up domain from DNS table (like trans_proxy's dns_table.lookup())
-        let hostname = dnsTable.lookup(destHost) ?? destHost
-
         Task {
             var socksConn: NWConnection?
             do {
@@ -230,10 +200,11 @@ class TransparentProxyProvider: NETransparentProxyProvider {
                 )
                 socksConn = conn
 
-                // SOCKS5 handshake
+                // SOCKS5 handshake with destination IP — mihomo resolves
+                // domain internally via its DNS cache for rule matching
                 try await socks5Handshake(
                     connection: conn,
-                    destHost: hostname,
+                    destHost: destHost,
                     destPort: UInt16(destPort) ?? 0
                 )
 
@@ -365,30 +336,23 @@ class TransparentProxyProvider: NETransparentProxyProvider {
         }
     }
 
-    /// Handle a DNS query: forward via DoH through SOCKS5, parse response,
-    /// populate DNS table, return response to the flow.
-    /// Reference: trans_proxy/src/dns.rs run_doh()
+    /// Handle a DNS query: resolve via DoH through SOCKS5 proxy (avoids DNS
+    /// pollution), and also forward to Mihomo's local DNS so it can cache the
+    /// domain→IP mapping for rule matching on subsequent TCP flows.
     private func handleDNSQuery(
         query: Data, flow: NEAppProxyUDPFlow, endpoint: NWHostEndpoint
     ) async {
         guard query.count >= 12 else { return }
 
-        // Extract queried domain name for DNS table
-        let queriedDomain = extractDomainFromQuery(query)
+        // Fire-and-forget: also send query to Mihomo DNS so it populates
+        // its internal cache (used for rule matching on TCP flows).
+        Task { try? await forwardToMihomoDNS(query: query) }
 
         do {
-            // Forward DNS via DoH through SOCKS5 proxy
+            // Resolve via DoH through SOCKS5 → remote proxy (clean response)
             let response = try await resolveDNSviaDoH(query: query)
 
-            // Parse A records and populate DNS table
-            if let domain = queriedDomain {
-                let ips = extractARecords(from: response)
-                for ipAddr in ips {
-                    dnsTable.insert(ipAddress: ipAddr, domain: domain)
-                }
-            }
-
-            // Restore original transaction ID (DoH server may echo a different ID)
+            // Restore original transaction ID
             var fixedResponse = response
             if fixedResponse.count >= 2 {
                 fixedResponse[0] = query[0]
@@ -409,9 +373,10 @@ class TransparentProxyProvider: NETransparentProxyProvider {
         }
     }
 
-    // MARK: - DoH Client (reference: trans_proxy dns.rs)
+    // MARK: - DoH Client (DNS-over-HTTPS through SOCKS5 proxy)
 
-    /// URLSession configured to route through the local SOCKS5 proxy.
+    /// URLSession configured to route through the local SOCKS5 proxy,
+    /// so DoH requests travel via the remote proxy server (avoids DNS pollution).
     private lazy var dohSession: URLSession = {
         let config = URLSessionConfiguration.ephemeral
         config.connectionProxyDictionary = [
@@ -439,9 +404,44 @@ class TransparentProxyProvider: NETransparentProxyProvider {
         return data
     }
 
+    // MARK: - Mihomo DNS Forwarder (for rule-matching cache)
+
+    /// Forward a DNS query to Mihomo's local DNS server so it populates its
+    /// internal cache. The response is discarded — only the DoH response is
+    /// returned to apps.
+    private func forwardToMihomoDNS(query: Data) async throws {
+        let conn = NWConnection(
+            host: NWEndpoint.Host(Self.mihomoDNSHost),
+            port: NWEndpoint.Port(rawValue: Self.mihomoDNSPort)!,
+            using: .udp
+        )
+
+        try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
+            conn.stateUpdateHandler = { state in
+                if case .failed(let error) = state {
+                    cont.resume(throwing: error)
+                    conn.cancel()
+                }
+            }
+
+            conn.start(queue: .global())
+
+            conn.send(content: query, completion: .contentProcessed { error in
+                // We don't need the response — just ensure the query is sent
+                // so Mihomo caches the domain→IP mapping.
+                conn.cancel()
+                if let error = error {
+                    cont.resume(throwing: error)
+                } else {
+                    cont.resume()
+                }
+            })
+        }
+    }
+
     // MARK: - SOCKS5 Handshake
 
-    /// Perform SOCKS5 handshake (RFC 1928) with domain-based CONNECT.
+    /// Perform SOCKS5 handshake (RFC 1928) — supports IPv4, IPv6, and domain CONNECT.
     private func socks5Handshake(
         connection: NWConnection,
         destHost: String,
@@ -637,80 +637,6 @@ class TransparentProxyProvider: NETransparentProxyProvider {
                 }
             }
         }
-    }
-
-    // MARK: - DNS Parsing (reference: trans_proxy dns.rs)
-
-    /// Extract the queried domain name from a DNS query packet.
-    private func extractDomainFromQuery(_ packet: Data) -> String? {
-        guard packet.count >= 12 else { return nil }
-        var pos = 12
-        var labels: [String] = []
-        while pos < packet.count {
-            let len = Int(packet[pos])
-            if len == 0 { break }
-            if len >= 0xC0 { break }  // Compression pointer
-            pos += 1
-            guard pos + len <= packet.count else { return nil }
-            if let label = String(
-                data: packet[pos..<pos + len], encoding: .utf8
-            ) {
-                labels.append(label)
-            }
-            pos += len
-        }
-        return labels.isEmpty ? nil : labels.joined(separator: ".")
-    }
-
-    /// Extract A record IPs from a DNS response packet.
-    private func extractARecords(from packet: Data) -> [String] {
-        guard packet.count >= 12 else { return [] }
-        let ancount = (UInt16(packet[6]) << 8) | UInt16(packet[7])
-        let qdcount = (UInt16(packet[4]) << 8) | UInt16(packet[5])
-        var pos = 12
-
-        // Skip question section
-        for _ in 0..<qdcount {
-            pos = skipDNSName(packet, pos: pos) ?? packet.count
-            pos += 4  // QTYPE + QCLASS
-        }
-
-        // Parse answer records
-        var ips: [String] = []
-        for _ in 0..<ancount {
-            guard let nextPos = skipDNSName(packet, pos: pos) else { break }
-            pos = nextPos
-            guard pos + 10 <= packet.count else { break }
-            let rtype = (UInt16(packet[pos]) << 8) | UInt16(packet[pos + 1])
-            let rdlength = (UInt16(packet[pos + 8]) << 8)
-                | UInt16(packet[pos + 9])
-            pos += 10
-            if rtype == 1 && rdlength == 4 && pos + 4 <= packet.count {
-                // A record
-                let addr =
-                    "\(packet[pos]).\(packet[pos+1]).\(packet[pos+2]).\(packet[pos+3])"
-                ips.append(addr)
-            }
-            pos += Int(rdlength)
-        }
-        return ips
-    }
-
-    /// Skip a DNS name (handles compression pointers).
-    private func skipDNSName(_ packet: Data, pos: Int) -> Int? {
-        var current = pos
-        while current < packet.count {
-            let len = Int(packet[current])
-            if len == 0 {
-                return current + 1
-            }
-            if len >= 0xC0 {
-                // Compression pointer — 2 bytes
-                return current + 2
-            }
-            current += 1 + len
-        }
-        return nil
     }
 
     // MARK: - IPC

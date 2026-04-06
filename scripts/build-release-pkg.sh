@@ -36,6 +36,12 @@ INSTALLER_CERT=$(security find-identity -v -p basic | grep "Developer ID Install
 
 echo "=== Building ${APP_NAME} v${VERSION} (${BUILD}) PKG ==="
 
+echo "=== Step 0: Bump build number for system extension ==="
+NEW_BUILD=$((BUILD + 1))
+xcrun agvtool new-version -all "$NEW_BUILD" > /dev/null
+BUILD=$NEW_BUILD
+echo "Build number bumped to ${BUILD}"
+
 echo "=== Step 1: Build framework ==="
 make framework
 
