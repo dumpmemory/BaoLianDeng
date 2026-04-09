@@ -57,6 +57,9 @@ vendor/bundle/
 # Local build settings (contains DEVELOPMENT_TEAM)
 Local.xcconfig
 
+# Firebase config (contains API keys / project identifiers)
+GoogleService-Info.plist
+
 # Claude Code
 CLAUDE.md
 .claude/

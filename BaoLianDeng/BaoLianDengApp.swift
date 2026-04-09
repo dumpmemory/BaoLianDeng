@@ -13,6 +13,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import FirebaseCore
 import SwiftUI
 
 @main
@@ -21,6 +22,7 @@ struct BaoLianDengApp: App {
     @StateObject private var trafficStore = TrafficStore.shared
 
     init() {
+        FirebaseApp.configure()
         ConfigManager.shared.sanitizeConfig()
     }
 

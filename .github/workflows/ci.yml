@@ -78,6 +78,11 @@ jobs:
       - name: Create Local.xcconfig
         run: touch Local.xcconfig
 
+      - name: Provision Firebase config
+        env:
+          FIREBASE_PLIST_BASE64: ${{ secrets.FIREBASE_PLIST_BASE64 }}
+        run: scripts/provision-firebase.sh
+
       - name: Build
         run: |
           xcodebuild build \
@@ -104,6 +109,11 @@ jobs:
 
       - name: Create Local.xcconfig
         run: touch Local.xcconfig
+
+      - name: Provision Firebase config
+        env:
+          FIREBASE_PLIST_BASE64: ${{ secrets.FIREBASE_PLIST_BASE64 }}
+        run: scripts/provision-firebase.sh
 
       - name: Run Tests
         run: |
