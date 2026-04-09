@@ -43,6 +43,8 @@
 		A1B2C3D4E5F60718293A4B5C /* PerAppProxySettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10095 /* PerAppProxySettings.swift */; };
 		A1B2C3D4E5F60718293A4B5D /* PerAppProxySettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10095 /* PerAppProxySettings.swift */; };
 		T10022 /* BypassGroupDetectionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = T10021 /* BypassGroupDetectionTests.swift */; };
+		B10400A /* SOCKS5Client.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10400 /* SOCKS5Client.swift */; };
+		B10400B /* SOCKS5Client.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10400 /* SOCKS5Client.swift */; };
 		A1B2C3D4E5F60718293A4B5E /* PerAppProxySection.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10096 /* PerAppProxySection.swift */; };
 		B10201 /* SubscriptionModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10200 /* SubscriptionModels.swift */; };
 		B10203 /* NodeRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10202 /* NodeRow.swift */; };
@@ -123,6 +125,7 @@
 		B10055 /* ConfigListViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConfigListViews.swift; sourceTree = "<group>"; };
 		B10095 /* PerAppProxySettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PerAppProxySettings.swift; sourceTree = "<group>"; };
 		T10021 /* BypassGroupDetectionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BypassGroupDetectionTests.swift; sourceTree = "<group>"; };
+		B10400 /* SOCKS5Client.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SOCKS5Client.swift; sourceTree = "<group>"; };
 		B10096 /* PerAppProxySection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PerAppProxySection.swift; sourceTree = "<group>"; };
 		B10200 /* SubscriptionModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SubscriptionModels.swift; sourceTree = "<group>"; };
 		B10202 /* NodeRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NodeRow.swift; sourceTree = "<group>"; };
@@ -219,6 +222,7 @@
 			children = (
 				B10020 /* TransparentProxyProvider.swift */,
 				B10021 /* UDPNATRelay.swift */,
+				B10400 /* SOCKS5Client.swift */,
 			);
 			path = TransparentProxy;
 			sourceTree = "<group>";
@@ -444,6 +448,7 @@
 				8D9BF44D7D340ADB5C09AEF9 /* VPNManager.swift in Sources */,
 				A1B2C3D4E5F60718293A4B5C /* PerAppProxySettings.swift in Sources */,
 				A1B2C3D4E5F60718293A4B5E /* PerAppProxySection.swift in Sources */,
+				B10400B /* SOCKS5Client.swift in Sources */,
 				B10201 /* SubscriptionModels.swift in Sources */,
 				B10203 /* NodeRow.swift in Sources */,
 				B10205 /* MainContentView.swift in Sources */,
@@ -458,6 +463,7 @@
 			files = (
 				9EAAFF911784E9AE012953A3 /* TransparentProxyProvider.swift in Sources */,
 				A2B3C4D5E6F7A8B9C0D1E2F3 /* UDPNATRelay.swift in Sources */,
+				B10400A /* SOCKS5Client.swift in Sources */,
 				F0MAIN0001 /* main.swift in Sources */,
 				EBAC80D31A3CCD3F3C083FDA /* AppLogger.swift in Sources */,
 				9C1CFB15DEC224B8210EA2E9 /* Constants.swift in Sources */,

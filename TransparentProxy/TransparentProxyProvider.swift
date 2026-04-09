@@ -33,7 +33,6 @@ class TransparentProxyProvider: NETransparentProxyProvider {
     private static let socksPort: UInt16 = 7890
     private static let mihomoDNSHost = "127.0.0.1"
     private static let mihomoDNSPort: UInt16 = 1053
-    private static let dohURL = "https://8.8.8.8/dns-query"
 
     private lazy var logURL: URL = {
         let dir = ConfigManager.shared.configDirectoryURL?.deletingLastPathComponent()
@@ -129,10 +128,6 @@ class TransparentProxyProvider: NETransparentProxyProvider {
                 self?.log("TCP-TEST: HTTP via proxy...")
                 let proxyResult = BridgeTestProxyHTTP("http://www.baidu.com/")
                 self?.log("TCP-TEST proxy: \(proxyResult ?? "nil")")
-
-                self?.log("DNS-TEST: resolving via Mihomo DNS...")
-                let dnsResult = BridgeTestDNSResolver("127.0.0.1:1053")
-                self?.log("DNS-TEST: \(dnsResult ?? "nil")")
             }
         }
     }
@@ -190,19 +185,21 @@ class TransparentProxyProvider: NETransparentProxyProvider {
 
         let destHost = endpoint.hostname
         let destPort = endpoint.port
+        log("TCP \(destHost):\(destPort)")
 
         Task {
             var socksConn: NWConnection?
             do {
                 // Connect to Mihomo's SOCKS5 proxy
-                let conn = try await connectTCP(
+                let conn = try await SOCKS5Client.connectTCP(
                     host: Self.socksHost, port: Self.socksPort
                 )
                 socksConn = conn
 
-                // SOCKS5 handshake with destination IP — mihomo resolves
-                // domain internally via its DNS cache for rule matching
-                try await socks5Handshake(
+                // SOCKS5 handshake — pass the raw destination IP; mihomo
+                // recovers the domain via its DNS snooping reverse cache
+                // (populated from the UDP DNS queries we forward to 1053).
+                try await SOCKS5Client.handshake(
                     connection: conn,
                     destHost: destHost,
                     destPort: UInt16(destPort) ?? 0
@@ -336,175 +333,63 @@ class TransparentProxyProvider: NETransparentProxyProvider {
         }
     }
 
-    /// Handle a DNS query: resolve via DoH through SOCKS5 proxy (avoids DNS
-    /// pollution), and also forward to Mihomo's local DNS so it can cache the
-    /// domain→IP mapping for rule matching on subsequent TCP flows.
+    /// Forward a UDP DNS query directly to mihomo's DNS server on
+    /// `127.0.0.1:1053` and relay the response back to the app. Mihomo
+    /// populates its own snooping cache from the query, and its SOCKS5
+    /// listener uses that cache to recover the domain when subsequent
+    /// TCP flows arrive with only an IP.
     private func handleDNSQuery(
         query: Data, flow: NEAppProxyUDPFlow, endpoint: NWHostEndpoint
     ) async {
         guard query.count >= 12 else { return }
-
-        // Fire-and-forget: also send query to Mihomo DNS so it populates
-        // its internal cache (used for rule matching on TCP flows).
-        Task { try? await forwardToMihomoDNS(query: query) }
-
-        do {
-            // Resolve via DoH through SOCKS5 → remote proxy (clean response)
-            let response = try await resolveDNSviaDoH(query: query)
-
-            // Restore original transaction ID
-            var fixedResponse = response
-            if fixedResponse.count >= 2 {
-                fixedResponse[0] = query[0]
-                fixedResponse[1] = query[1]
+        guard let response = sendDNSToMihomo(query: query) else {
+            log("DNS forward failed")
+            return
+        }
+        flow.writeDatagrams([response], sentBy: [endpoint]) { error in
+            if let error = error {
+                AppLogger.tunnel.error(
+                    "DNS write error: \(error, privacy: .public)"
+                )
             }
+        }
+    }
 
-            // Send response back to the flow
-            flow.writeDatagrams([fixedResponse], sentBy: [endpoint]) { error in
-                if let error = error {
-                    AppLogger.tunnel.error(
-                        "DNS write error: \(error, privacy: .public)"
+    /// Synchronous UDP round-trip to mihomo's DNS server on
+    /// `127.0.0.1:1053`. Loopback so per-query sockets are cheap.
+    private func sendDNSToMihomo(query: Data) -> Data? {
+        let sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP)
+        guard sock >= 0 else { return nil }
+        defer { close(sock) }
+
+        var tv = timeval(tv_sec: 3, tv_usec: 0)
+        setsockopt(
+            sock, SOL_SOCKET, SO_RCVTIMEO, &tv,
+            socklen_t(MemoryLayout<timeval>.size)
+        )
+
+        var addr = sockaddr_in()
+        addr.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
+        addr.sin_family = sa_family_t(AF_INET)
+        addr.sin_port = in_port_t(Self.mihomoDNSPort).bigEndian
+        inet_pton(AF_INET, Self.mihomoDNSHost, &addr.sin_addr)
+
+        let sent = query.withUnsafeBytes { buf -> Int in
+            withUnsafePointer(to: &addr) { aptr in
+                aptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { saptr in
+                    sendto(
+                        sock, buf.baseAddress, buf.count, 0, saptr,
+                        socklen_t(MemoryLayout<sockaddr_in>.size)
                     )
                 }
             }
-
-        } catch {
-            log("DoH error: \(error)")
         }
-    }
+        guard sent == query.count else { return nil }
 
-    // MARK: - DoH Client (DNS-over-HTTPS through SOCKS5 proxy)
-
-    /// URLSession configured to route through the local SOCKS5 proxy,
-    /// so DoH requests travel via the remote proxy server (avoids DNS pollution).
-    private lazy var dohSession: URLSession = {
-        let config = URLSessionConfiguration.ephemeral
-        config.connectionProxyDictionary = [
-            kCFProxyTypeKey: kCFProxyTypeSOCKS,
-            kCFStreamPropertySOCKSProxyHost: Self.socksHost,
-            kCFStreamPropertySOCKSProxyPort: Self.socksPort
-        ]
-        config.timeoutIntervalForRequest = 10
-        return URLSession(configuration: config)
-    }()
-
-    /// Resolve a DNS query via DNS-over-HTTPS through the SOCKS5 proxy.
-    private func resolveDNSviaDoH(query: Data) async throws -> Data {
-        var request = URLRequest(url: URL(string: Self.dohURL)!)
-        request.httpMethod = "POST"
-        request.setValue("application/dns-message", forHTTPHeaderField: "Content-Type")
-        request.setValue("application/dns-message", forHTTPHeaderField: "Accept")
-        request.httpBody = query
-
-        let (data, response) = try await dohSession.data(for: request)
-        guard let httpResponse = response as? HTTPURLResponse,
-              httpResponse.statusCode == 200 else {
-            throw ProviderError.unexpectedEOF
-        }
-        return data
-    }
-
-    // MARK: - Mihomo DNS Forwarder (for rule-matching cache)
-
-    /// Forward a DNS query to Mihomo's local DNS server so it populates its
-    /// internal cache. The response is discarded — only the DoH response is
-    /// returned to apps.
-    private func forwardToMihomoDNS(query: Data) async throws {
-        let conn = NWConnection(
-            host: NWEndpoint.Host(Self.mihomoDNSHost),
-            port: NWEndpoint.Port(rawValue: Self.mihomoDNSPort)!,
-            using: .udp
-        )
-
-        try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
-            conn.stateUpdateHandler = { state in
-                if case .failed(let error) = state {
-                    cont.resume(throwing: error)
-                    conn.cancel()
-                }
-            }
-
-            conn.start(queue: .global())
-
-            conn.send(content: query, completion: .contentProcessed { error in
-                // We don't need the response — just ensure the query is sent
-                // so Mihomo caches the domain→IP mapping.
-                conn.cancel()
-                if let error = error {
-                    cont.resume(throwing: error)
-                } else {
-                    cont.resume()
-                }
-            })
-        }
-    }
-
-    // MARK: - SOCKS5 Handshake
-
-    /// Perform SOCKS5 handshake (RFC 1928) — supports IPv4, IPv6, and domain CONNECT.
-    private func socks5Handshake(
-        connection: NWConnection,
-        destHost: String,
-        destPort: UInt16
-    ) async throws {
-        // Step 1: Greeting — no auth
-        let greeting = Data([0x05, 0x01, 0x00])
-        try await sendAll(connection: connection, data: greeting)
-
-        let authResp = try await readExact(connection: connection, count: 2)
-        guard authResp[0] == 0x05, authResp[1] == 0x00 else {
-            throw ProviderError.socks5AuthFailed
-        }
-
-        // Step 2: CONNECT request
-        var request = Data([0x05, 0x01, 0x00])
-
-        // Determine address type
-        if IPv4Address(destHost) != nil {
-            // IPv4
-            request.append(0x01)
-            let parts = destHost.split(separator: ".").compactMap {
-                UInt8($0)
-            }
-            request.append(contentsOf: parts)
-        } else if let ipv6 = IPv6Address(destHost) {
-            // IPv6
-            request.append(0x04)
-            withUnsafeBytes(of: ipv6.rawValue) { request.append(contentsOf: $0) }
-        } else {
-            // Domain name (ATYP 0x03)
-            request.append(0x03)
-            let domainBytes = Array(destHost.utf8)
-            request.append(UInt8(domainBytes.count))
-            request.append(contentsOf: domainBytes)
-        }
-
-        // Port (big-endian)
-        request.append(UInt8(destPort >> 8))
-        request.append(UInt8(destPort & 0xFF))
-
-        try await sendAll(connection: connection, data: request)
-
-        // Read response: version, status, rsv, atyp
-        let connResp = try await readExact(connection: connection, count: 4)
-        guard connResp[0] == 0x05, connResp[1] == 0x00 else {
-            throw ProviderError.socks5ConnectFailed
-        }
-
-        // Skip bound address
-        switch connResp[3] {
-        case 0x01:  // IPv4
-            _ = try await readExact(connection: connection, count: 4 + 2)
-        case 0x03:  // Domain
-            let lenData = try await readExact(connection: connection, count: 1)
-            _ = try await readExact(
-                connection: connection, count: Int(lenData[0]) + 2
-            )
-        case 0x04:  // IPv6
-            _ = try await readExact(connection: connection, count: 16 + 2)
-        default:
-            break
-        }
+        var respBuf = [UInt8](repeating: 0, count: 4096)
+        let n = recv(sock, &respBuf, respBuf.count, 0)
+        guard n > 0 else { return nil }
+        return Data(respBuf[0..<n])
     }
 
     // MARK: - TCP Relay
@@ -525,7 +410,7 @@ class TransparentProxyProvider: NETransparentProxyProvider {
                     }
                     guard let data = data else { break }
                     do {
-                        try await self.sendAll(connection: connection, data: data)
+                        try await SOCKS5Client.sendAll(connection: connection, data: data)
                     } catch {
                         break
                     }
@@ -540,7 +425,7 @@ class TransparentProxyProvider: NETransparentProxyProvider {
             group.addTask {
                 while true {
                     do {
-                        let data = try await self.readSome(connection: connection)
+                        let data = try await SOCKS5Client.readSome(connection: connection)
                         guard !data.isEmpty else { break }
                         let writeOK: Bool = await withCheckedContinuation { cont in
                             flow.write(data) { error in
@@ -556,85 +441,6 @@ class TransparentProxyProvider: NETransparentProxyProvider {
                 connection.cancel()
                 flow.closeReadWithError(nil)
                 flow.closeWriteWithError(nil)
-            }
-        }
-    }
-
-    // MARK: - NWConnection Helpers
-
-    private func connectTCP(host: String, port: UInt16) async throws -> NWConnection {
-        let endpoint = NWEndpoint.hostPort(
-            host: NWEndpoint.Host(host),
-            port: NWEndpoint.Port(rawValue: port)!
-        )
-        let connection = NWConnection(to: endpoint, using: .tcp)
-
-        return try await withCheckedThrowingContinuation { cont in
-            connection.stateUpdateHandler = { state in
-                switch state {
-                case .ready:
-                    connection.stateUpdateHandler = nil
-                    cont.resume(returning: connection)
-                case .failed(let error):
-                    connection.stateUpdateHandler = nil
-                    cont.resume(throwing: error)
-                case .cancelled:
-                    connection.stateUpdateHandler = nil
-                    cont.resume(throwing: ProviderError.connectionCancelled)
-                default:
-                    break
-                }
-            }
-            connection.start(queue: .global(qos: .userInitiated))
-        }
-    }
-
-    private func sendAll(connection: NWConnection, data: Data) async throws {
-        try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
-            connection.send(
-                content: data,
-                completion: .contentProcessed { error in
-                    if let error = error {
-                        cont.resume(throwing: error)
-                    } else {
-                        cont.resume()
-                    }
-                })
-        }
-    }
-
-    private func readExact(connection: NWConnection, count: Int) async throws -> Data {
-        try await withCheckedThrowingContinuation { cont in
-            connection.receive(
-                minimumIncompleteLength: count,
-                maximumLength: count
-            ) { data, _, _, error in
-                if let error = error {
-                    cont.resume(throwing: error)
-                } else if let data = data, data.count >= count {
-                    cont.resume(returning: data)
-                } else {
-                    cont.resume(throwing: ProviderError.unexpectedEOF)
-                }
-            }
-        }
-    }
-
-    private func readSome(connection: NWConnection) async throws -> Data {
-        try await withCheckedThrowingContinuation { cont in
-            connection.receive(
-                minimumIncompleteLength: 1,
-                maximumLength: 65536
-            ) { data, _, isComplete, error in
-                if let error = error {
-                    cont.resume(throwing: error)
-                } else if let data = data, !data.isEmpty {
-                    cont.resume(returning: data)
-                } else if isComplete {
-                    cont.resume(returning: Data())
-                } else {
-                    cont.resume(returning: Data())
-                }
             }
         }
     }
@@ -992,24 +798,12 @@ extension Collection {
 
 enum ProviderError: LocalizedError {
     case configNotFound
-    case socks5AuthFailed
-    case socks5ConnectFailed
-    case connectionCancelled
-    case unexpectedEOF
     case udpRelayFailed
 
     var errorDescription: String? {
         switch self {
         case .configNotFound:
             return "config.yaml not found. Please configure proxies first."
-        case .socks5AuthFailed:
-            return "SOCKS5 authentication failed"
-        case .socks5ConnectFailed:
-            return "SOCKS5 CONNECT failed"
-        case .connectionCancelled:
-            return "Connection was cancelled"
-        case .unexpectedEOF:
-            return "Unexpected end of data"
         case .udpRelayFailed:
             return "UDP relay socket creation failed"
         }
