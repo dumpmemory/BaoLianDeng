@@ -32,9 +32,7 @@ final class VPNManager: NSObject, ObservableObject {
     private var pendingActivation = false
     private var isLoadingManager = false
     private func dbg(_ msg: String) {
-        #if DEBUG
-        AppLogger.vpn.debug("\(msg, privacy: .public)")
-        #endif
+        AppLogger.vpn.notice("\(msg, privacy: .public)")
     }
 
     private var manager: NETransparentProxyManager?
@@ -499,8 +497,11 @@ final class VPNManager: NSObject, ObservableObject {
                 options: .regularExpression)
         }
         if let mode = defaults.string(forKey: "proxyMode") {
+            // Anchor to a word boundary so we don't rewrite `enhanced-mode:`
+            // (mihomo's DNS parser rejects `enhanced-mode: rule` with
+            // "hub.Parse: invalid mode").
             yaml = yaml.replacingOccurrences(
-                of: #"mode:\s*\w+"#, with: "mode: \(mode)",
+                of: #"(?<![\w-])mode:\s*\w+"#, with: "mode: \(mode)",
                 options: .regularExpression)
         }
 

@@ -43,7 +43,7 @@ class TransparentProxyProvider: NETransparentProxyProvider {
 
     private func log(_ message: String) {
         let line = "[\(Date())] \(message)\n"
-        AppLogger.tunnel.info("\(message, privacy: .public)")
+        AppLogger.tunnel.notice("\(message, privacy: .public)")
         if let data = line.data(using: .utf8) {
             if FileManager.default.fileExists(atPath: logURL.path),
                let handle = try? FileHandle(forWritingTo: logURL) {
@@ -54,6 +54,12 @@ class TransparentProxyProvider: NETransparentProxyProvider {
                 try? data.write(to: logURL)
             }
         }
+    }
+
+    // MARK: - Geodata Setup
+
+    private func ensureGeodataFiles(configDir: String) {
+        ConfigManager.shared.ensureGeodataFiles(configDir: configDir)
     }
 
     // MARK: - Proxy Lifecycle
@@ -101,6 +107,9 @@ class TransparentProxyProvider: NETransparentProxyProvider {
             let rustLogPath = (configDir as NSString).deletingLastPathComponent
                 + "/rust_bridge.log"
             BridgeSetLogFile(rustLogPath)
+
+            // Ensure geodata files exist (bundled copy, then jsDelivr fallback)
+            self?.ensureGeodataFiles(configDir: configDir)
 
             self?.log("Setting home dir: \(configDir)")
             BridgeSetHomeDir(configDir)
