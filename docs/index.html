@@ -420,9 +420,9 @@ footer .footer-links {
   <img src="images/AppIcon.png" alt="BaoLianDeng App Icon" class="hero-icon">
   <h1>BaoLianDeng</h1>
   <p class="tagline">macOS VPN proxy app powered by Mihomo (Clash Meta) with NETransparentProxyProvider</p>
-  <p class="hero-version"><a href="https://github.com/madeye/BaoLianDeng/releases/tag/v5.1">v5.1</a></p>
+  <p class="hero-version"><a href="https://github.com/madeye/BaoLianDeng/releases/tag/v5.2">v5.2</a></p>
   <div class="hero-buttons">
-    <a href="https://github.com/madeye/BaoLianDeng/releases/download/v5.1/BaoLianDeng-5.1.pkg" class="btn btn-primary">
+    <a href="https://github.com/madeye/BaoLianDeng/releases/download/v5.2/BaoLianDeng-5.1.pkg" class="btn btn-primary">
       <svg viewBox="0 0 16 16"><path d="M2.75 14A1.75 1.75 0 0 1 1 12.25v-2.5a.75.75 0 0 1 1.5 0v2.5c0 .138.112.25.25.25h10.5a.25.25 0 0 0 .25-.25v-2.5a.75.75 0 0 1 1.5 0v2.5A1.75 1.75 0 0 1 13.25 14ZM7.25 7.689V2a.75.75 0 0 1 1.5 0v5.689l1.97-1.969a.749.749 0 1 1 1.06 1.06l-3.25 3.25a.749.749 0 0 1-1.06 0L4.22 6.78a.749.749 0 1 1 1.06-1.06l1.97 1.969Z"/></svg>
       Download PKG
     </a>
@@ -445,8 +445,8 @@ footer .footer-links {
     </div>
     <div class="feature-card">
       <span class="feature-icon" aria-hidden="true">&#x2699;&#xFE0F;</span>
-      <h3>Rust-Powered Engine</h3>
-      <p>Mihomo (Clash Meta) compiled as a native xcframework via Rust FFI — no external binaries, no runtime overhead.</p>
+      <h3>Go-Powered Engine</h3>
+      <p>Upstream Mihomo (Clash Meta) compiled as a native xcframework via cgo c-archive — no patches, no external binaries.</p>
     </div>
     <div class="feature-card">
       <span class="feature-icon" aria-hidden="true">&#x1F517;</span>
@@ -479,7 +479,7 @@ footer .footer-links {
     <div class="install-card">
       <h3>&#x1F4E5; Download PKG</h3>
       <ol>
-        <li>Download <a href="https://github.com/madeye/BaoLianDeng/releases/download/v5.1/BaoLianDeng-5.1.pkg"><code>BaoLianDeng-5.1.pkg</code></a></li>
+        <li>Download <a href="https://github.com/madeye/BaoLianDeng/releases/download/v5.2/BaoLianDeng-5.1.pkg"><code>BaoLianDeng-5.1.pkg</code></a></li>
         <li>Open the PKG installer and follow the prompts</li>
         <li>Launch from Applications</li>
         <li>Enable the network extension: <strong>System Settings &rarr; General &rarr; Login Items &amp; Extensions &rarr; Network Extensions</strong> &rarr; toggle on <strong>BaoLianDeng</strong></li>
@@ -488,7 +488,7 @@ footer .footer-links {
     <div class="install-card">
       <h3>&#x1F527; Build from Source</h3>
       <ol>
-        <li>Clone the repo and install Rust toolchain</li>
+        <li>Clone the repo and install Go 1.23+</li>
         <li>Copy <code>Local.xcconfig.template</code> to <code>Local.xcconfig</code> and set your team ID</li>
         <li>Run <code>make framework</code> to build MihomoCore.xcframework</li>
         <li>Open <code>BaoLianDeng.xcodeproj</code> in Xcode and build (Cmd+R)</li>
