@@ -1,0 +1,5 @@
+module MihomoCore {
+    header "MihomoCore.h"
+    link "MihomoCore"
+    export *
+}
